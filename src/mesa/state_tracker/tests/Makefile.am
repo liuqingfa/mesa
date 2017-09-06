@@ -15,8 +15,10 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/gallium/auxiliary \
 	$(DEFINES)
 
+if HAVE_GALLIUM
 TESTS = st-renumerate-test
 check_PROGRAMS = st-renumerate-test
+endif 
 
 st_renumerate_test_SOURCES =			\
 	test_glsl_to_tgsi_lifetime.cpp

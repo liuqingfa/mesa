@@ -55,7 +55,8 @@ gallium_dri_la_LIBADD = \
 	$(SELINUX_LIBS) \
 	$(EXPAT_LIBS) \
 	$(LIBDRM_LIBS) \
-	$(GALLIUM_COMMON_LIB_DEPS)
+	$(GALLIUM_COMMON_LIB_DEPS) \
+	$(LIBUNWIND_LIBS)
 
 EXTRA_gallium_dri_la_DEPENDENCIES = \
 	dri.sym \

@@ -81,6 +81,7 @@ matrix:
             - libexpat1-dev
             - libx11-xcb-dev
             - libelf-dev
+            - libunwind8-dev
     - env:
         - LABEL="make Gallium Drivers Other"
         - BUILD=make
@@ -108,6 +109,7 @@ matrix:
             - libexpat1-dev
             - libx11-xcb-dev
             - libelf-dev
+            - libunwind8-dev
     - env:
         # NOTE: Analogous to SWR above, building Clover is quite slow.
         - LABEL="make Gallium ST Clover"
@@ -144,6 +146,7 @@ matrix:
             - libexpat1-dev
             - libx11-xcb-dev
             - libelf-dev
+            - libunwind8-dev
     - env:
         - LABEL="make Gallium ST Other"
         - BUILD=make
@@ -174,6 +177,7 @@ matrix:
             - libexpat1-dev
             - libx11-xcb-dev
             - libelf-dev
+            - libunwind8-dev
     - env:
         - LABEL="make Vulkan"
         - BUILD=make

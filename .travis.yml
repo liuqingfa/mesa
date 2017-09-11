@@ -371,7 +371,6 @@ script:
       export CC="$CC -isystem`pwd`";
 
       ./autogen.sh --enable-debug
-        --disable-silent-rules
         --enable-libunwind
         $DRI_LOADERS
         --with-dri-drivers=$DRI_DRIVERS

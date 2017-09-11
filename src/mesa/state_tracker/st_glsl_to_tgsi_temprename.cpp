@@ -508,7 +508,11 @@ void temp_comp_access::record_read(int line, prog_scope *scope)
       first_read_scope = scope;
    }
 
-   record_read_in_else(*scope);
+   /* If we have not yet written and it is not yet established that the
+    * write is conditional then check whether we read first in an else branch.
+    */
+   if (!else_write && !else_access_makes_it_conditional)
+      record_read_in_else(*scope);
 }
 
 void temp_comp_access::record_write(int line, prog_scope *scope)
@@ -519,6 +523,7 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
       first_write = line;
       first_write_scope = scope;
    }
+
    record_write_in_ifelse(*scope);
 }
 
@@ -533,11 +538,6 @@ void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
 
 void temp_comp_access::record_read_in_else(const prog_scope& scope)
 {
-   /* if we have already written the value in this else branch, or
-    * it is already established that the write is onditional then exit
-    */
-   if (else_write || else_access_makes_it_conditional)
-      return;
 
    /* The general case of first read before write is already handled elsewhere,
     * but we have have to record read before write in the else branch, because

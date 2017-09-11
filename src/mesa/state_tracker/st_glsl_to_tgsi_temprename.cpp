@@ -1114,8 +1114,11 @@ void dump_instruction(int line, prog_scope *scope,
          cerr << ", ";
 
       const st_src_reg& src = inst.src[j];
-      cerr << tgsi_file_names[src.file]
-           << "[" << src.index << "]";
+      cerr << tgsi_file_names[src.file];
+      if (src.file == PROGRAM_ARRAY)
+         cerr << "(" << src.array_id << ")";
+      cerr << "[" << src.index << "]";
+
       if (src.swizzle != SWIZZLE_XYZW) {
          cerr << ".";
          for (int idx = 0; idx < 4; ++idx) {

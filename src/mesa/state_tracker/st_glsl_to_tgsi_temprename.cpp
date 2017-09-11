@@ -558,6 +558,9 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 
    const int containing_loop_id = scope.innermost_loop()->id();
 
+   /* Return if it is already established that the write is unconditional
+    * in this loop.
+    */
    if (write_unconditional_in_loop_id == containing_loop_id)
       return;
 
@@ -567,7 +570,6 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
          conditional_write_scope_id = scope.id();
    } else {
       else_write = true;
-
       /* If written in corresponding if-path clear if_write flag
        * and propagate to enclosing if-else level, but only if that
        * scope is also within a loop.

@@ -372,7 +372,7 @@ script:
 
       ./autogen.sh --enable-debug
         --disable-silent-rules
-	--enable-libunwind
+        --enable-libunwind
         $DRI_LOADERS
         --with-dri-drivers=$DRI_DRIVERS
         $GALLIUM_ST

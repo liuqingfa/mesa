@@ -99,6 +99,8 @@ public:
    int begin() const;
    int loop_break_line() const;
 
+   const prog_scope *in_if_scope() const;
+   const prog_scope *in_else_scope() const;
    const prog_scope *in_ifelse_scope() const;
    const prog_scope *in_switchcase_scope() const;
    const prog_scope *innermost_loop() const;
@@ -150,8 +152,8 @@ public:
    lifetime get_required_lifetime();
 private:
    void propagate_lifetime_to_dominant_write_scope();
-   void ifelse_record_write(const prog_scope& scope);
-   void ifelse_record_read(const prog_scope& ifelse);
+   void record_write_in_ifelse(const prog_scope& scope);
+   void record_read_in_esle();
    bool if_or_else_write_in_loop() const;
 
    prog_scope *last_read_scope;
@@ -298,6 +300,28 @@ bool prog_scope::is_conditional() const
          scope_type == else_branch ||
          scope_type == switch_case_branch ||
          scope_type == switch_default_branch;
+}
+
+const prog_scope *prog_scope::in_if_scope() const
+{
+   if (scope_type == if_branch)
+      return this;
+
+   if (parent_scope)
+      return parent_scope->in_if_scope();
+
+   return nullptr;
+}
+
+const prog_scope *prog_scope::in_else_scope() const
+{
+   if (scope_type == else_branch)
+      return this;
+
+   if (parent_scope)
+      return parent_scope->in_else_scope();
+
+   return nullptr;
 }
 
 const prog_scope *prog_scope::in_ifelse_scope() const
@@ -484,9 +508,9 @@ void temp_comp_access::record_read(int line, prog_scope *scope)
       first_read_scope = scope;
    }
 
-   const prog_scope *ifelse_scope = scope->in_ifelse_scope();
-   if (ifelse_scope && ifelse_scope->innermost_loop())
-      ifelse_record_read(*ifelse_scope);
+   const prog_scope *else_scope = scope->in_else_scope();
+   if (else_scope && else_scope->innermost_loop())
+      record_read_in_esle();
 }
 
 void temp_comp_access::record_write(int line, prog_scope *scope)
@@ -499,7 +523,7 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
    }
    const prog_scope *ifelse_scope = scope->in_ifelse_scope();
    if (ifelse_scope && ifelse_scope->innermost_loop())
-      ifelse_record_write(*ifelse_scope );
+      record_write_in_ifelse(*ifelse_scope);
 }
 
 void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
@@ -511,23 +535,22 @@ void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
       last_read = lr;
 }
 
-void temp_comp_access::ifelse_record_read(const prog_scope& ifelse)
+void temp_comp_access::record_read_in_esle()
 {
-   /* teh general case of first read before write is already handled elsewhere,
+   /* The general case of first read before write is already handled elsewhere,
     * but we have have to record read before write in the else branch, because
-    * in this case a later write in the else branch does not change the fact
-    * that the write is conditional in this if-else scope.
+    * in this case a latter write in the else branch does not change the fact
+    * that the write is conditional in this complete if-else scope.
     */
-   if ((ifelse.type() == else_branch) && !else_write) {
+   if (!else_write)
       else_access_makes_it_conditional = true;
-   }
 }
 
-void temp_comp_access::ifelse_record_write(const prog_scope& ifelse)
+void temp_comp_access::record_write_in_ifelse(const prog_scope& ifelse)
 {
-   /* Early exit: if we have already established that the access in an else
+   /* Early exit if we have already established that the access in an else
     * branch makes the assignment to the temporary conditional or we already
-    * established that the dominant write is unconditional.
+    * established that the write is unconditional in this loop.
     */
    if (else_access_makes_it_conditional ||
        write_unconditional_in_loop_id == ifelse.innermost_loop()->id())
@@ -546,8 +569,10 @@ void temp_comp_access::ifelse_record_write(const prog_scope& ifelse)
        */
       if (if_write) {
           if (conditional_write_scope_id == ifelse.id()) {
+
              conditional_write_scope_id = 0;
              if_write = false;
+
              /* since we should be somewhere in a loop the parent scope must
               * always exist.
               */
@@ -556,10 +581,11 @@ void temp_comp_access::ifelse_record_write(const prog_scope& ifelse)
 
              /* If some parent is ifelse and in a loop then propagate the
               * write to that scope, otherwise the write is unconditional
-              * because it happens in both corresponding if-else branches.
+              * because it happens in both corresponding if-else branches,
+              * in this loop, hence we record the loop id.
               */
              if (parent_ifelse && parent_ifelse->is_in_loop())
-                ifelse_record_write(*parent_ifelse);
+                record_write_in_ifelse(*parent_ifelse);
              else
                 write_unconditional_in_loop_id = ifelse.innermost_loop()->id();
           }
@@ -574,7 +600,8 @@ void temp_comp_access::ifelse_record_write(const prog_scope& ifelse)
 
 bool temp_comp_access::if_or_else_write_in_loop() const
 {
-   return (else_access_makes_it_conditional || conditional_write_scope_id);
+   return (else_access_makes_it_conditional ||
+           conditional_write_scope_id != 0);
 }
 
 

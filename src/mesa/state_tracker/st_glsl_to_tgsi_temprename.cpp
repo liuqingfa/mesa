@@ -524,7 +524,8 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
       first_write_scope = scope;
    }
 
-   record_write_in_ifelse(*scope);
+   if (!else_access_makes_it_conditional)
+      record_write_in_ifelse(*scope);
 }
 
 void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
@@ -551,8 +552,6 @@ void temp_comp_access::record_read_in_else(const prog_scope& scope)
 
 void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 {
-   if (else_access_makes_it_conditional)
-      return;
 
    const prog_scope *ifelse_scope = scope.in_ifelse_scope();
    if (!ifelse_scope)

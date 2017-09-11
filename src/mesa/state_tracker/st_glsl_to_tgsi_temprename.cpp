@@ -524,8 +524,11 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
       first_write_scope = scope;
    }
 
-   if (!else_access_makes_it_conditional)
-      record_write_in_ifelse(*scope);
+   if (!else_access_makes_it_conditional) {
+      const prog_scope *ifelse_scope = scope->in_ifelse_scope();
+      if (ifelse_scope && ifelse_scope->innermost_loop())
+         record_write_in_ifelse(*ifelse_scope);
+   }
 }
 
 void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
@@ -553,21 +556,15 @@ void temp_comp_access::record_read_in_else(const prog_scope& scope)
 void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 {
 
-   const prog_scope *ifelse_scope = scope.in_ifelse_scope();
-   if (!ifelse_scope)
+   const int containing_loop_id = scope.innermost_loop()->id();
+
+   if (write_unconditional_in_loop_id == containing_loop_id)
       return;
 
-   const prog_scope *containing_loop = ifelse_scope->innermost_loop();
-   if (!containing_loop)
-      return;
-
-   if (write_unconditional_in_loop_id == containing_loop->id())
-      return;
-
-   if (ifelse_scope->type() == if_branch) {
+   if (scope.type() == if_branch) {
       if_write  = true;
       if (!conditional_write_scope_id)
-         conditional_write_scope_id = ifelse_scope->id();
+         conditional_write_scope_id = scope.id();
    } else {
       else_write = true;
 
@@ -576,7 +573,7 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
        * scope is also within a loop.
        */
       if (if_write) {
-          if (conditional_write_scope_id == ifelse_scope->id()) {
+          if (conditional_write_scope_id == scope.id()) {
 
              conditional_write_scope_id = 0;
              if_write = false;
@@ -584,8 +581,8 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
              /* since we should be somewhere in a loop the parent scope must
               * always exist.
               */
-             assert(ifelse_scope->parent());
-             const prog_scope *parent_ifelse = ifelse_scope->parent()->in_ifelse_scope();
+             assert(scope.parent());
+             const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();
 
              /* If some parent is ifelse and in a loop then propagate the
               * write to that scope, otherwise the write is unconditional
@@ -595,7 +592,7 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
              if (parent_ifelse && parent_ifelse->is_in_loop())
                 record_write_in_ifelse(*parent_ifelse);
              else
-                write_unconditional_in_loop_id = containing_loop->id();
+                write_unconditional_in_loop_id = containing_loop_id;
           }
       } else {
          /* If written in else branch but not in if branch the

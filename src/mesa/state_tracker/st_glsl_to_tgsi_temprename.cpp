@@ -144,6 +144,33 @@ private:
    prog_scope *storage;
 };
 
+
+class track_ifelse_access {
+public:
+
+   enum resolution {
+      unresolved,
+      unconditional,
+      conditional,
+   };
+
+
+   track_ifelse_access();
+   resolution record_ifelse_write(const prog_scope& scope);
+
+private:
+   resolution record_if_write(const prog_scope& scope);
+   resolution record_else_write(const prog_scope& scope);
+
+   uint32_t m_if_flags;
+   uint32_t m_else_flags;
+   int current_depth;
+   int if_scopes[32];
+   bool nesting_overflow;
+   int write_unconditional_in_loop_id;
+};
+
+
 class temp_comp_access {
 public:
    temp_comp_access();
@@ -167,7 +194,8 @@ private:
    int write_unconditional_in_loop_id;
    int if_write:1;
    int else_write:1;
-   int else_access_makes_it_conditional:1;
+   track_ifelse_access::resolution conditial_write_in_ifelse;
+   track_ifelse_access *ifelse_access;
 };
 
 class temp_access {
@@ -482,6 +510,83 @@ lifetime temp_access::get_required_lifetime()
    return result;
 }
 
+track_ifelse_access::track_ifelse_access():
+   m_if_flags(0),
+   m_else_flags(0),
+   current_depth(0),
+   nesting_overflow(false),
+   write_unconditional_in_loop_id(0)
+{
+   memset(if_scopes, 0, 32 * sizeof(int));
+   cerr << "create ifelse tracker\n";
+}
+
+track_ifelse_access::resolution
+track_ifelse_access::record_ifelse_write(const prog_scope& scope)
+{
+   if (nesting_overflow)
+      return conditional;
+
+   if (scope.nesting_depth() > 31) {
+      nesting_overflow = true;
+      return conditional;
+   }
+
+   /* Already resolved as unconditional in this loop? */
+   if (write_unconditional_in_loop_id == scope.innermost_loop()->id())
+      return unconditional;
+
+   if (scope.type() == if_branch)
+      return record_if_write(scope);
+   else
+      return record_else_write(scope);
+}
+
+track_ifelse_access::resolution
+track_ifelse_access::record_if_write(const prog_scope& scope)
+{
+   if (scope.id() == if_scopes[current_depth - 1])
+      return unresolved;
+
+   m_if_flags |= 1 << scope.nesting_depth();
+   if_scopes[current_depth++] = scope.id();
+   return unresolved;
+}
+
+track_ifelse_access::resolution
+track_ifelse_access::record_else_write(const prog_scope& scope)
+{
+   int mask = 1 << scope.nesting_depth();
+   m_else_flags |= mask;
+
+   if (m_if_flags & mask) {
+      if (scope.id() == if_scopes[current_depth - 1]) {
+         if_scopes[current_depth - 1] = 0;
+         m_if_flags &= ~mask;
+
+         assert(scope.parent());
+         const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();
+
+         /* If some parent is ifelse and in a loop then propagate the
+          * write to that scope, otherwise the write is unconditional
+          * because it happens in both corresponding if-else branches,
+          * in this loop, hence we record the loop id.
+          */
+         if (parent_ifelse && parent_ifelse->is_in_loop())
+            record_ifelse_write(*parent_ifelse);
+         else {
+            write_unconditional_in_loop_id = scope.innermost_loop()->id();
+            cerr << "Establish uncond-loop=" << write_unconditional_in_loop_id
+                 << "\n";
+            return unconditional;
+         }
+      }
+      return unresolved;
+   } else {
+      return conditional;
+   }
+}
+
 temp_comp_access::temp_comp_access():
    last_read_scope(nullptr),
    first_read_scope(nullptr),
@@ -494,7 +599,8 @@ temp_comp_access::temp_comp_access():
    write_unconditional_in_loop_id(0),
    if_write(0),
    else_write(0),
-   else_access_makes_it_conditional(0)
+   conditial_write_in_ifelse(track_ifelse_access::unresolved),
+   ifelse_access(nullptr)
 {
 }
 
@@ -511,7 +617,8 @@ void temp_comp_access::record_read(int line, prog_scope *scope)
    /* If we have not yet written and it is not yet established that the
     * write is conditional then check whether we read first in an else branch.
     */
-   if (!else_write && !else_access_makes_it_conditional)
+   if (!else_write &&
+       conditial_write_in_ifelse == track_ifelse_access::unresolved)
       record_read_in_else(*scope);
 }
 
@@ -524,7 +631,7 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
       first_write_scope = scope;
    }
 
-   if (!else_access_makes_it_conditional) {
+   if (conditial_write_in_ifelse != track_ifelse_access::conditional) {
       const prog_scope *ifelse_scope = scope->in_ifelse_scope();
       if (ifelse_scope && ifelse_scope->innermost_loop())
          record_write_in_ifelse(*ifelse_scope);
@@ -545,72 +652,37 @@ void temp_comp_access::record_read_in_else(const prog_scope& scope)
 
    /* The general case of first read before write is already handled elsewhere,
     * but we have have to record read before write in the else branch, because
-    * in this case a latter write in the else branch does not change the fact
+    * in this case a later write in the else branch does not change the fact
     * that the write is conditional in this complete if-else scope.
     */
    const prog_scope *else_scope = scope.in_else_scope();
    if (else_scope && else_scope->innermost_loop())
-            else_access_makes_it_conditional = true;
+            conditial_write_in_ifelse = track_ifelse_access::conditional;
 }
 
 void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 {
-
-   const int containing_loop_id = scope.innermost_loop()->id();
-
-   /* Return if it is already established that the write is unconditional
-    * in this loop.
-    */
-   if (write_unconditional_in_loop_id == containing_loop_id)
+   if (conditial_write_in_ifelse == track_ifelse_access::conditional) {
+      cerr << "Establised conditional write\n";
       return;
-
-   if (scope.type() == if_branch) {
-      if_write  = true;
-      if (!conditional_write_scope_id)
-         conditional_write_scope_id = scope.id();
-   } else {
-      else_write = true;
-      /* If written in corresponding if-path clear if_write flag
-       * and propagate to enclosing if-else level, but only if that
-       * scope is also within a loop.
-       */
-      if (if_write) {
-          if (conditional_write_scope_id == scope.id()) {
-
-             conditional_write_scope_id = 0;
-             if_write = false;
-
-             /* since we should be somewhere in a loop the parent scope must
-              * always exist.
-              */
-             assert(scope.parent());
-             const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();
-
-             /* If some parent is ifelse and in a loop then propagate the
-              * write to that scope, otherwise the write is unconditional
-              * because it happens in both corresponding if-else branches,
-              * in this loop, hence we record the loop id.
-              */
-             if (parent_ifelse && parent_ifelse->is_in_loop())
-                record_write_in_ifelse(*parent_ifelse);
-             else
-                write_unconditional_in_loop_id = containing_loop_id;
-          }
-      } else {
-         /* If written in else branch but not in if branch the
-          * write is conditional.
-          */
-         else_access_makes_it_conditional = true;
-      }
    }
+
+   cerr << "Record write in ifelse " << scope.id() << " \n";
+
+   if (!ifelse_access)
+      ifelse_access = new track_ifelse_access();
+
+   else_write = scope.type() == else_branch;
+
+   conditial_write_in_ifelse = ifelse_access->record_ifelse_write(scope);
 }
 
 bool temp_comp_access::if_or_else_write_in_loop() const
 {
-   return (else_access_makes_it_conditional ||
-           conditional_write_scope_id != 0);
+   delete ifelse_access;
+   cerr << "Conditional is " << (conditial_write_in_ifelse != track_ifelse_access::unconditional) <<"\n";
+   return conditial_write_in_ifelse != track_ifelse_access::unconditional;
 }
-
 
 lifetime temp_comp_access::get_required_lifetime()
 {

@@ -156,7 +156,6 @@ public:
       conditional,
    };
 
-
    track_ifelse_access();
    resolution record_ifelse_write(const prog_scope& scope);
 
@@ -191,7 +190,6 @@ private:
    int last_read;
    int last_write;
    int first_read;
-   int conditional_write_scope_id;
    int write_unconditional_in_loop_id;
    int if_write:1;
    int else_write:1;
@@ -603,7 +601,6 @@ temp_comp_access::temp_comp_access():
    last_read(-1),
    last_write(-1),
    first_read(numeric_limits<int>::max()),
-   conditional_write_scope_id(0),
    write_unconditional_in_loop_id(0),
    if_write(0),
    else_write(0),

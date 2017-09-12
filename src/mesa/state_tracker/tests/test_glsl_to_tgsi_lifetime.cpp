@@ -496,7 +496,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
    run (code, expectation({{-1,-1}, {3,14}}));
 }
 
-TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfInLoopResolved)
+TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfEleInLoopResolved)
 {
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
@@ -523,6 +523,35 @@ TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfInLoopResolved)
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {2,18}, {18, 20}}));
+}
+
+TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_IF, {}, {in0}, {}},
+      {         TGSI_OPCODE_IF, {}, {in0}, {}},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ELSE},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ENDIF},
+      {       TGSI_OPCODE_ELSE},
+      {         TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {       TGSI_OPCODE_ENDIF},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {5,18}, {18, 20}}));
 }
 
 

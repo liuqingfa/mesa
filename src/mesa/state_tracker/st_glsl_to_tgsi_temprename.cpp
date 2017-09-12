@@ -150,18 +150,12 @@ private:
 class track_ifelse_access {
 public:
 
-   enum resolution {
-      unresolved,
-      unconditional,
-      conditional,
-   };
-
    track_ifelse_access();
-   resolution record_ifelse_write(const prog_scope& scope);
+   int record_ifelse_write(const prog_scope& scope);
 
 private:
-   resolution record_if_write(const prog_scope& scope);
-   resolution record_else_write(const prog_scope& scope);
+   int record_if_write(const prog_scope& scope);
+   int record_else_write(const prog_scope& scope);
 
    uint32_t m_if_flags;
    int current_depth;
@@ -192,7 +186,6 @@ private:
    int first_read;
    int write_unconditional_in_loop_id;
    bool else_write;
-   track_ifelse_access::resolution conditial_write_in_ifelse;
    track_ifelse_access *ifelse_access;
 };
 
@@ -518,23 +511,22 @@ track_ifelse_access::track_ifelse_access():
    cerr << "create ifelse tracker\n";
 }
 
-track_ifelse_access::resolution
-track_ifelse_access::record_ifelse_write(const prog_scope& scope)
+int track_ifelse_access::record_ifelse_write(const prog_scope& scope)
 {
    /* if the nesting depth is larger than the supported level,
     * then we asume conditional writes
     */
    if (nesting_overflow)
-      return conditional;
+      return -1;
 
    if (scope.nesting_depth() >= SUPPORED_IFELSE_NESTING_SCOPES) {
       nesting_overflow = true;
-      return conditional;
+      return -1;
    }
 
    /* Already resolved as unconditional in this loop? */
    if (write_unconditional_in_loop_id == scope.innermost_loop()->id())
-      return unconditional;
+      return write_unconditional_in_loop_id;
 
    if (scope.type() == if_branch)
       return record_if_write(scope);
@@ -542,19 +534,17 @@ track_ifelse_access::record_ifelse_write(const prog_scope& scope)
       return record_else_write(scope);
 }
 
-track_ifelse_access::resolution
-track_ifelse_access::record_if_write(const prog_scope& scope)
+int track_ifelse_access::record_if_write(const prog_scope& scope)
 {
    if (scope.id() == if_scopes[current_depth - 1])
-      return unresolved;
+      return 0;
 
    m_if_flags |= 1 << current_depth;
    if_scopes[current_depth++] = scope.id();
-   return unresolved;
+   return 0;
 }
 
-track_ifelse_access::resolution
-track_ifelse_access::record_else_write(const prog_scope& scope)
+int track_ifelse_access::record_else_write(const prog_scope& scope)
 {
    int mask = 1 << (current_depth - 1);
 
@@ -577,18 +567,18 @@ track_ifelse_access::record_else_write(const prog_scope& scope)
             return record_ifelse_write(*parent_ifelse);
          } else {
             write_unconditional_in_loop_id = scope.innermost_loop()->id();
-            return unconditional;
+            return write_unconditional_in_loop_id;
          }
 
       } else {
          /* The else write scope at this nesting level didn't correspond to the
           * if write scope, hence the write is unconditional
           */
-         return conditional;
+         return -1;
       }
    } else {
       /* Only written in the else branch, hence it is conditional  */
-      return conditional;
+      return -1;
    }
 }
 
@@ -602,7 +592,6 @@ temp_comp_access::temp_comp_access():
    first_read(numeric_limits<int>::max()),
    write_unconditional_in_loop_id(0),
    else_write(0),
-   conditial_write_in_ifelse(track_ifelse_access::unresolved),
    ifelse_access(nullptr)
 {
 }
@@ -620,8 +609,7 @@ void temp_comp_access::record_read(int line, prog_scope *scope)
    /* If we have not yet written and it is not yet established that the
     * write is conditional then check whether we read first in an else branch.
     */
-   if (!else_write &&
-       conditial_write_in_ifelse == track_ifelse_access::unresolved)
+   if (!else_write &&  write_unconditional_in_loop_id == 0)
       record_read_in_else(*scope);
 }
 
@@ -634,7 +622,7 @@ void temp_comp_access::record_write(int line, prog_scope *scope)
       first_write_scope = scope;
    }
 
-   if (conditial_write_in_ifelse != track_ifelse_access::conditional) {
+   if (write_unconditional_in_loop_id >= 0) {
       const prog_scope *ifelse_scope = scope->in_ifelse_scope();
       if (ifelse_scope && ifelse_scope->innermost_loop())
          record_write_in_ifelse(*ifelse_scope);
@@ -660,13 +648,12 @@ void temp_comp_access::record_read_in_else(const prog_scope& scope)
     */
    const prog_scope *else_scope = scope.in_else_scope();
    if (else_scope && else_scope->innermost_loop())
-            conditial_write_in_ifelse = track_ifelse_access::conditional;
+            write_unconditional_in_loop_id = -1;
 }
 
 void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 {
-   if (conditial_write_in_ifelse == track_ifelse_access::conditional) {
-      cerr << "Establised conditional write\n";
+   if (write_unconditional_in_loop_id == -1) {
       return;
    }
 
@@ -675,16 +662,20 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
    if (!ifelse_access)
       ifelse_access = new track_ifelse_access();
 
-   else_write = scope.type() == else_branch;
+   else_write = (scope.type() == else_branch);
 
-   conditial_write_in_ifelse = ifelse_access->record_ifelse_write(scope);
+   write_unconditional_in_loop_id = ifelse_access->record_ifelse_write(scope);
+   if (write_unconditional_in_loop_id == -1) {
+      delete ifelse_access;
+      ifelse_access = nullptr;
+   }
 }
 
 bool temp_comp_access::if_or_else_write_in_loop() const
 {
-   delete ifelse_access;
-   cerr << "Conditional is " << conditial_write_in_ifelse  <<"\n";
-   return conditial_write_in_ifelse != track_ifelse_access::unconditional;
+   if (ifelse_access)
+      delete ifelse_access;
+   return write_unconditional_in_loop_id <= 0;
 }
 
 lifetime temp_comp_access::get_required_lifetime()

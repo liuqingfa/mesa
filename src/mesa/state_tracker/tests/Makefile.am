@@ -1,3 +1,4 @@
+include $(top_srcdir)/src/gallium/Automake.inc
 AM_CFLAGS = \
 	$(PTHREAD_CFLAGS)
 
@@ -31,7 +32,4 @@ st_renumerate_test_LDADD = \
 	$(top_builddir)/src/util/libmesautil.la \
 	$(top_builddir)/src/gtest/libgtest.la \
 	$(GALLIUM_COMMON_LIB_DEPS) \
-	$(LIBUNWIND_LIBS) \
-	$(LLVM_LIBS) \
-	$(PTHREAD_LIBS) \
-	$(DLOPEN_LIBS)
+	$(LLVM_LIBS)

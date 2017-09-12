@@ -165,9 +165,9 @@ private:
 
    uint32_t m_if_flags;
    int current_depth;
+   int write_unconditional_in_loop_id;
    int if_scopes[SUPPORED_IFELSE_NESTING_SCOPES];
    bool nesting_overflow;
-   int write_unconditional_in_loop_id;
 };
 
 
@@ -191,8 +191,7 @@ private:
    int last_write;
    int first_read;
    int write_unconditional_in_loop_id;
-   int if_write:1;
-   int else_write:1;
+   bool else_write;
    track_ifelse_access::resolution conditial_write_in_ifelse;
    track_ifelse_access *ifelse_access;
 };
@@ -512,8 +511,8 @@ lifetime temp_access::get_required_lifetime()
 track_ifelse_access::track_ifelse_access():
    m_if_flags(0),
    current_depth(0),
-   nesting_overflow(false),
-   write_unconditional_in_loop_id(0)
+   write_unconditional_in_loop_id(0),
+   nesting_overflow(false)
 {
    memset(if_scopes, 0, SUPPORED_IFELSE_NESTING_SCOPES * sizeof(int));
    cerr << "create ifelse tracker\n";
@@ -602,7 +601,6 @@ temp_comp_access::temp_comp_access():
    last_write(-1),
    first_read(numeric_limits<int>::max()),
    write_unconditional_in_loop_id(0),
-   if_write(0),
    else_write(0),
    conditial_write_in_ifelse(track_ifelse_access::unresolved),
    ifelse_access(nullptr)

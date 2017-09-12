@@ -154,11 +154,11 @@ public:
    int record_ifelse_write(const prog_scope& scope);
 
 private:
-   int record_if_write(const prog_scope& scope);
+   void record_if_write(const prog_scope& scope);
    int record_else_write(const prog_scope& scope);
 
-   uint32_t m_if_flags;
-   int current_depth;
+   uint32_t if_write_flags;
+   int current_ifelse_nesting_depth;
    int write_unconditional_in_loop_id;
    int if_scopes[SUPPORED_IFELSE_NESTING_SCOPES];
    bool nesting_overflow;
@@ -502,8 +502,8 @@ lifetime temp_access::get_required_lifetime()
 }
 
 track_ifelse_access::track_ifelse_access():
-   m_if_flags(0),
-   current_depth(0),
+   if_write_flags(0),
+   current_ifelse_nesting_depth(0),
    write_unconditional_in_loop_id(0),
    nesting_overflow(false)
 {
@@ -527,32 +527,31 @@ int track_ifelse_access::record_ifelse_write(const prog_scope& scope)
    if (write_unconditional_in_loop_id == scope.innermost_loop()->id())
       return write_unconditional_in_loop_id;
 
-   if (scope.type() == if_branch)
-      return record_if_write(scope);
-   else
+   if (scope.type() == if_branch) {
+      record_if_write(scope);
+      return 0;
+   } else
       return record_else_write(scope);
 }
 
-int track_ifelse_access::record_if_write(const prog_scope& scope)
+void track_ifelse_access::record_if_write(const prog_scope& scope)
 {
-   if (scope.id() == if_scopes[current_depth - 1])
-      return 0;
-
-   m_if_flags |= 1 << current_depth;
-   if_scopes[current_depth++] = scope.id();
-   return 0;
+   if (scope.id() != if_scopes[current_ifelse_nesting_depth - 1]) {
+      if_write_flags |= 1 << current_ifelse_nesting_depth;
+      if_scopes[current_ifelse_nesting_depth++] = scope.id();
+   }
 }
 
 int track_ifelse_access::record_else_write(const prog_scope& scope)
 {
-   int mask = 1 << (current_depth - 1);
+   int mask = 1 << (current_ifelse_nesting_depth - 1);
 
-   if (m_if_flags & mask) {
+   if (if_write_flags & mask) {
 
-      if (scope.id() == if_scopes[current_depth - 1]) {
-         --current_depth;
-         if_scopes[current_depth] = 0;
-         m_if_flags &= ~mask;
+      if (scope.id() == if_scopes[current_ifelse_nesting_depth - 1]) {
+         --current_ifelse_nesting_depth;
+         if_scopes[current_ifelse_nesting_depth] = 0;
+         if_write_flags &= ~mask;
 
          assert(scope.parent());
          const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();

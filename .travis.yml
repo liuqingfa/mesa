@@ -196,7 +196,7 @@ script:
         --with-vulkan-drivers=$VULKAN_DRIVERS
         --disable-llvm-shared-libs
         &&
-      make && make V=1 && $MAKE_CHECK_COMMAND;
+      make; make -j1 V=1 && $MAKE_CHECK_COMMAND;
     fi
 
   - if test "x$BUILD" = xscons; then

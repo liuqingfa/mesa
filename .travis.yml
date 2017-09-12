@@ -168,9 +168,9 @@ script:
         --with-vulkan-drivers=$VULKAN_DRIVERS
         --disable-llvm-shared-libs
         &&
-      make
-      rm src/gallium/targets/dri/gallium_dri* 
-      rm -r src/gallium/targets/dri/.libs 
+      make; 
+      rm src/gallium/targets/dri/gallium_dri* ; 
+      rm -r src/gallium/targets/dri/.libs ; 
       make -j1 V=1 && $MAKE_CHECK_COMMAND;
     fi
 

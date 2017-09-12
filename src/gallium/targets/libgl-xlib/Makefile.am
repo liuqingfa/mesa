@@ -20,6 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+include $(top_srcdir)/src/gallium/Automake.inc
+
 GL_MAJOR = 1
 GL_MINOR = 5
 GL_TINY = $(MESA_MAJOR)$(MESA_MINOR)0$(MESA_TINY)
@@ -29,16 +31,11 @@ SHARED_GLAPI_LIB = $(top_builddir)/src/mapi/shared-glapi/libglapi.la
 endif
 
 AM_CPPFLAGS = \
-	-I$(top_srcdir)/include \
-	-I$(top_srcdir)/src \
+	$(GALLIUM_TARGET_CFLAGS) \
 	-I$(top_srcdir)/src/mapi \
 	-I$(top_srcdir)/src/mesa \
 	-I$(top_srcdir)/src/mesa/main \
-	-I$(top_srcdir)/src/gallium/include \
-	-I$(top_srcdir)/src/gallium/drivers \
 	-I$(top_srcdir)/src/gallium/state_trackers/glx/xlib \
-	-I$(top_srcdir)/src/gallium/auxiliary \
-	-I$(top_srcdir)/src/gallium/winsys \
 	-DGALLIUM_SOFTPIPE \
 	-DGALLIUM_RBUG \
 	-DGALLIUM_TRACE
@@ -72,8 +69,7 @@ lib@GL_LIB@_la_LIBADD = \
 	$(top_builddir)/src/gallium/auxiliary/libgallium.la \
 	$(SHARED_GLAPI_LIB) \
 	$(GL_LIB_DEPS) \
-	$(CLOCK_LIB) \
-	$(LIBUNWIND_LIBS)
+	$(GALLIUM_COMMON_LIB_DEPS)
 
 if HAVE_GALLIUM_LLVM
 lib@GL_LIB@_la_LIBADD += $(top_builddir)/src/gallium/drivers/llvmpipe/libllvmpipe.la $(LLVM_LIBS)

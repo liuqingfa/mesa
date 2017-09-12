@@ -21,6 +21,11 @@ libgallium_la_SOURCES = \
 	$(NIR_SOURCES) \
 	$(GENERATED_SOURCES)
 
+if HAVE_LIBUNWIND
+libgallium_la_LIBADD = \
+  $(LIBUNWIND_LIBS)
+endif 
+
 if HAVE_LIBDRM
 
 AM_CFLAGS += \

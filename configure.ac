@@ -1102,6 +1102,7 @@ AC_ARG_ENABLE([libunwind],
 if test "x$LIBUNWIND" = "xyes"; then
     PKG_CHECK_MODULES(LIBUNWIND, libunwind)
     AC_DEFINE(HAVE_LIBUNWIND, 1, [Have libunwind support])
+	AM_CONDITIONAL([HAVE_LIBUNWIND],[test x$LIBUNWIND = "xyes"])
 fi
 
 

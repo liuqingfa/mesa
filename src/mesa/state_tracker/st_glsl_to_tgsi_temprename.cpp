@@ -560,9 +560,17 @@ track_ifelse_access::record_else_write(const prog_scope& scope)
    m_else_flags |= mask;
 
    if (m_if_flags & mask) {
+      cerr << "Else write at scope id =" << scope.id()
+           << ", last recorded read at level "
+           << current_depth
+           <<" was in scope "
+           << if_scopes[current_depth - 1] << "\n";
+
       if (scope.id() == if_scopes[current_depth - 1]) {
-         if_scopes[current_depth - 1] = 0;
+         --current_depth;
+         if_scopes[current_depth] = 0;
          m_if_flags &= ~mask;
+
 
          assert(scope.parent());
          const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();
@@ -572,16 +580,22 @@ track_ifelse_access::record_else_write(const prog_scope& scope)
           * because it happens in both corresponding if-else branches,
           * in this loop, hence we record the loop id.
           */
-         if (parent_ifelse && parent_ifelse->is_in_loop())
-            record_ifelse_write(*parent_ifelse);
-         else {
+         if (parent_ifelse && parent_ifelse->is_in_loop()) {
+            cerr << "Record write in parent ifelse =" << parent_ifelse->id()
+                 << "\n";
+            return record_ifelse_write(*parent_ifelse);
+         } else {
             write_unconditional_in_loop_id = scope.innermost_loop()->id();
-            cerr << "Establish uncond-loop=" << write_unconditional_in_loop_id
+            cerr << "Record undonditional write in loop "
+                 << write_unconditional_in_loop_id
                  << "\n";
             return unconditional;
          }
+      } else {
+         cerr << "Establish conditional write with else scope=" << scope.id()
+              << "\n";
+         return conditional;
       }
-      return unresolved;
    } else {
       return conditional;
    }
@@ -680,7 +694,7 @@ void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 bool temp_comp_access::if_or_else_write_in_loop() const
 {
    delete ifelse_access;
-   cerr << "Conditional is " << (conditial_write_in_ifelse != track_ifelse_access::unconditional) <<"\n";
+   cerr << "Conditional is " << conditial_write_in_ifelse  <<"\n";
    return conditial_write_in_ifelse != track_ifelse_access::unconditional;
 }
 

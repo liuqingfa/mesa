@@ -472,7 +472,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopBeforeWriteAndLifeToTheEnd)
  * life time is at least what is required, but we know that the
  * implementation doesn't do a full check and sets larger boundaries
  */
-TEST_F(LifetimeEvaluatorAtLeastTest, NestedIfInLoopAlwaysWriteButNotPropagated)
+TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
 {
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },

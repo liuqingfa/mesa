@@ -118,7 +118,6 @@ endif
 if HAVE_COMPAT_SYMLINKS
 # Add a link to allow setting LIBGL_DRIVERS_PATH to /lib/gallium of the build tree.
 all-local: $(dri_LTLIBRARIES)
-	echo "GALLIUM_COMMON_LIB_DEPS = '$(GALLIUM_COMMON_LIB_DEPS)'"
 	$(AM_V_GEN)link_dir=$(top_builddir)/$(LIB_DIR)/gallium;         \
 	$(MKDIR_P) $${link_dir};                                        \
 	for i in $(TARGET_DRIVERS); do                                  \

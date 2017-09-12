@@ -58,6 +58,8 @@ using std::numeric_limits;
 #define nullptr 0
 #endif
 
+#define SUPPORED_IFELSE_NESTING_SCOPES 32
+
 #ifndef NDEBUG
 /* Helper function to check whether we want to seen debugging output */
 static inline bool is_debug_enabled ()
@@ -163,9 +165,8 @@ private:
    resolution record_else_write(const prog_scope& scope);
 
    uint32_t m_if_flags;
-   uint32_t m_else_flags;
    int current_depth;
-   int if_scopes[32];
+   int if_scopes[SUPPORED_IFELSE_NESTING_SCOPES];
    bool nesting_overflow;
    int write_unconditional_in_loop_id;
 };
@@ -512,22 +513,24 @@ lifetime temp_access::get_required_lifetime()
 
 track_ifelse_access::track_ifelse_access():
    m_if_flags(0),
-   m_else_flags(0),
    current_depth(0),
    nesting_overflow(false),
    write_unconditional_in_loop_id(0)
 {
-   memset(if_scopes, 0, 32 * sizeof(int));
+   memset(if_scopes, 0, SUPPORED_IFELSE_NESTING_SCOPES * sizeof(int));
    cerr << "create ifelse tracker\n";
 }
 
 track_ifelse_access::resolution
 track_ifelse_access::record_ifelse_write(const prog_scope& scope)
 {
+   /* if the nesting depth is larger than the supported level,
+    * then we asume conditional writes
+    */
    if (nesting_overflow)
       return conditional;
 
-   if (scope.nesting_depth() > 31) {
+   if (scope.nesting_depth() >= SUPPORED_IFELSE_NESTING_SCOPES) {
       nesting_overflow = true;
       return conditional;
    }
@@ -548,7 +551,7 @@ track_ifelse_access::record_if_write(const prog_scope& scope)
    if (scope.id() == if_scopes[current_depth - 1])
       return unresolved;
 
-   m_if_flags |= 1 << scope.nesting_depth();
+   m_if_flags |= 1 << current_depth;
    if_scopes[current_depth++] = scope.id();
    return unresolved;
 }
@@ -556,21 +559,14 @@ track_ifelse_access::record_if_write(const prog_scope& scope)
 track_ifelse_access::resolution
 track_ifelse_access::record_else_write(const prog_scope& scope)
 {
-   int mask = 1 << scope.nesting_depth();
-   m_else_flags |= mask;
+   int mask = 1 << (current_depth - 1);
 
    if (m_if_flags & mask) {
-      cerr << "Else write at scope id =" << scope.id()
-           << ", last recorded read at level "
-           << current_depth
-           <<" was in scope "
-           << if_scopes[current_depth - 1] << "\n";
 
       if (scope.id() == if_scopes[current_depth - 1]) {
          --current_depth;
          if_scopes[current_depth] = 0;
          m_if_flags &= ~mask;
-
 
          assert(scope.parent());
          const prog_scope *parent_ifelse = scope.parent()->in_ifelse_scope();
@@ -581,22 +577,20 @@ track_ifelse_access::record_else_write(const prog_scope& scope)
           * in this loop, hence we record the loop id.
           */
          if (parent_ifelse && parent_ifelse->is_in_loop()) {
-            cerr << "Record write in parent ifelse =" << parent_ifelse->id()
-                 << "\n";
             return record_ifelse_write(*parent_ifelse);
          } else {
             write_unconditional_in_loop_id = scope.innermost_loop()->id();
-            cerr << "Record undonditional write in loop "
-                 << write_unconditional_in_loop_id
-                 << "\n";
             return unconditional;
          }
+
       } else {
-         cerr << "Establish conditional write with else scope=" << scope.id()
-              << "\n";
+         /* The else write scope at this nesting level didn't correspond to the
+          * if write scope, hence the write is unconditional
+          */
          return conditional;
       }
    } else {
+      /* Only written in the else branch, hence it is conditional  */
       return conditional;
    }
 }

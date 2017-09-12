@@ -653,19 +653,19 @@ void temp_comp_access::record_read_in_else(const prog_scope& scope)
 
 void temp_comp_access::record_write_in_ifelse(const prog_scope& scope)
 {
-   if (write_unconditional_in_loop_id == -1) {
+   if (write_unconditional_in_loop_id == -1)
       return;
-   }
 
-   cerr << "Record write in ifelse " << scope.id() << " \n";
+   if (write_unconditional_in_loop_id == scope.innermost_loop()->id())
+      return;
 
    if (!ifelse_access)
       ifelse_access = new track_ifelse_access();
 
    else_write = (scope.type() == else_branch);
-
    write_unconditional_in_loop_id = ifelse_access->record_ifelse_write(scope);
-   if (write_unconditional_in_loop_id == -1) {
+
+   if (write_unconditional_in_loop_id != 0) {
       delete ifelse_access;
       ifelse_access = nullptr;
    }

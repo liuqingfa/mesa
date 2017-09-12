@@ -47,7 +47,7 @@ matrix:
         - VULKAN_DRIVERS=""
       addons:
         apt:
-           sources:
+          sources:
             - llvm-toolchain-trusty-3.9
           packages:
             # Nine requires gcc 4.6... which is the one we have right ?

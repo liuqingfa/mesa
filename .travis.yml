@@ -35,7 +35,7 @@ matrix:
         - BUILD=make
         - MAKEFLAGS="-j4"
         - MAKE_CHECK_COMMAND="true"
-        - LLVM_VERSION=3.9
+        - LLVM_VERSION=3.3
         - LLVM_CONFIG="llvm-config-${LLVM_VERSION}"
         - DRI_LOADERS="--disable-glx --disable-gbm --disable-egl"
         - DRI_DRIVERS=""
@@ -47,12 +47,10 @@ matrix:
         - VULKAN_DRIVERS=""
       addons:
         apt:
-          sources:
-            - llvm-toolchain-trusty-3.9
           packages:
             - libedit-dev
             # From sources above
-            - llvm-3.9-dev
+            - llvm-3.3-dev
             # Nine requires gcc 4.6... which is the one we have right ?
             - libxvmc-dev
             # Build locally, for now.

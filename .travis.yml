@@ -40,6 +40,7 @@ matrix:
         - GALLIUM_ST="--enable-dri --disable-opencl --disable-xa --disable-nine --disable-xvmc --disable-vdpau --disable-va --disable-omx --disable-gallium-osmesa"
         - GALLIUM_DRIVERS=""
         - VULKAN_DRIVERS=""
+        - LIBUNWIND_FLAGS="--disable-libunwind"
       addons:
         apt:
           packages:
@@ -66,6 +67,7 @@ matrix:
         - GALLIUM_ST="--enable-dri --disable-opencl --disable-xa --disable-nine --disable-xvmc --disable-vdpau --disable-va --disable-omx --disable-gallium-osmesa"
         - GALLIUM_DRIVERS="swr"
         - VULKAN_DRIVERS=""
+        - LIBUNWIND_FLAGS="--enable-libunwind"
       addons:
         apt:
           sources:
@@ -94,6 +96,7 @@ matrix:
         - GALLIUM_ST="--enable-dri --disable-opencl --disable-xa --disable-nine --disable-xvmc --disable-vdpau --disable-va --disable-omx --disable-gallium-osmesa"
         - GALLIUM_DRIVERS="i915,nouveau,pl111,r300,r600,radeonsi,freedreno,svga,swrast,vc4,virgl,etnaviv,imx"
         - VULKAN_DRIVERS=""
+        -LIBUNWIND_FLAGS="--enable-libunwind"
       addons:
         apt:
           sources:
@@ -127,6 +130,7 @@ matrix:
         # Regardless - we're doing a quick build test here.
         - GALLIUM_DRIVERS="i915"
         - VULKAN_DRIVERS=""
+	- LIBUNWIND_FLAGS="--enable-libunwind"
       addons:
         apt:
           sources:
@@ -162,10 +166,11 @@ matrix:
         # Regardless - we're doing a quick build test here.
         - GALLIUM_DRIVERS="i915,swrast"
         - VULKAN_DRIVERS=""
+        - LIBUNWIND_FLAGS="--enable-libunwind"
       addons:
         apt:
           packages:
-            # We actually want to test against llvm-3.3 
+            # We actually want to test against llvm-3.3
             - llvm-3.3-dev
             # Nine requires gcc 4.6... which is the one we have right ?
             - libxvmc-dev
@@ -194,6 +199,7 @@ matrix:
         - GALLIUM_ST="--enable-dri --enable-dri3 --disable-opencl --disable-xa --disable-nine --disable-xvmc --disable-vdpau --disable-va --disable-omx --disable-gallium-osmesa"
         - GALLIUM_DRIVERS=""
         - VULKAN_DRIVERS="intel,radeon"
+	- LIBUNWIND_FLAGS="--disable-libunwind"
       addons:
         apt:
           sources:
@@ -375,7 +381,7 @@ script:
       export CC="$CC -isystem`pwd`";
 
       ./autogen.sh --enable-debug
-        --enable-libunwind
+        $LIBUNWIND_FLAGS
         $DRI_LOADERS
         --with-dri-drivers=$DRI_DRIVERS
         $GALLIUM_ST

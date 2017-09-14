@@ -125,7 +125,9 @@ int bc_parser::parse_decls() {
 		return 0;
 	}
 
-	if (pshader->indirect_files & ~((1 << TGSI_FILE_CONSTANT) | (1 << TGSI_FILE_SAMPLER))) {
+	if (pshader->indirect_files &
+	    ~((1 << TGSI_FILE_CONSTANT) | (1 << TGSI_FILE_SAMPLER) |
+          (1 << TGSI_FILE_SYSTEM_VALUE))) {
 
 		assert(pshader->num_arrays);
 
@@ -135,6 +137,10 @@ int bc_parser::parse_decls() {
 				sh->add_gpr_array(a.gpr_start, a.gpr_count, a.comp_mask);
 			}
 		} else {
+			/* When the above assert is disabled and proper array info
+			 * is missing for some reason then, as a fallback, make sure
+			 * that all GPRs can be accessed indirectly.
+			 */
 			sh->add_gpr_array(0, pshader->bc.ngpr, 0x0F);
 		}
 	}

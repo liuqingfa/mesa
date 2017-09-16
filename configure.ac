@@ -301,7 +301,14 @@ AX_CHECK_COMPILE_FLAG([-Wall],                                 [CXXFLAGS="$CXXFL
 AX_CHECK_COMPILE_FLAG([-fno-math-errno],                       [CXXFLAGS="$CXXFLAGS -fno-math-errno"])
 AX_CHECK_COMPILE_FLAG([-fno-trapping-math],                    [CXXFLAGS="$CXXFLAGS -fno-trapping-math"])
 AX_CHECK_COMPILE_FLAG([-fvisibility=hidden],                   [VISIBILITY_CXXFLAGS="-fvisibility=hidden"])
+AX_CHECK_COMPILE_FLAG([-std=c++11],                            [have_cxx11=yes])
 AC_LANG_POP([C++])
+
+if test "x$have_cxx11" = "xyes"; then 
+    CXX11_FLAGS=-std=c++11
+    AC_SUBST([CXX11_FLAGS])
+fi
+AM_CONDITIONAL(HAVE_STD_CXX11, test "x$have_cxx11" = "xyes")
 
 # Flags to help ensure that certain portions of the code -- and only those
 # portions -- can be built with MSVC:
@@ -2248,8 +2255,8 @@ if test "x$enable_opencl" = xyes; then
         AC_MSG_ERROR([cannot enable OpenCL without Gallium])
     fi
 
-    if test $GCC_VERSION_MAJOR -lt 4 -o $GCC_VERSION_MAJOR -eq 4 -a $GCC_VERSION_MINOR -lt 7; then
-        AC_MSG_ERROR([gcc >= 4.7 is required to build clover])
+    if test "x$have_cxx11" != "xyes"; then 
+        AC_MSG_ERROR([A compiler supporting -std=c++11 is required to build clover])  
     fi
 
     if test "x$have_libclc" = xno; then
@@ -2532,10 +2539,9 @@ if test -n "$with_gallium_drivers"; then
         xswr)
             llvm_require_version $LLVM_REQUIRED_SWR "swr"
 
-            swr_require_cxx_feature_flags "C++11" "__cplusplus >= 201103L" \
-                ",-std=c++11" \
-                SWR_CXX11_CXXFLAGS
-            AC_SUBST([SWR_CXX11_CXXFLAGS])
+            if test "x$have_cxx11" != "xyes"; then 
+                AC_MSG_ERROR([A compiler supporting -std=c++11 is required to build swr])  
+            fi
 
             swr_require_cxx_feature_flags "AVX" "defined(__AVX__)" \
                 ",-target-cpu=sandybridge,-mavx,-march=core-avx,-tp=sandybridge" \

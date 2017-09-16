@@ -1,3 +1,6 @@
+# The tests require c++11 support
+if HAVE_STD_CXX11
+
 include $(top_srcdir)/src/gallium/Automake.inc
 
 AM_CFLAGS = \
@@ -5,7 +8,7 @@ AM_CFLAGS = \
 
 AM_CXXFLAGS = \
 	$(GALLIUM_DRIVER_CXXFLAGS) \
-	-std=c++11
+	${CXX11_FLAGS}
 
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/gtest/include \
@@ -32,3 +35,5 @@ st_renumerate_test_LDADD = \
 	$(top_builddir)/src/gtest/libgtest.la \
 	$(GALLIUM_COMMON_LIB_DEPS) \
 	$(LLVM_LIBS)
+
+endif

@@ -32,7 +32,9 @@
 
 using std::vector;
 using std::pair;
+using std::tuple;
 using std::make_pair;
+using std::unique_ptr;
 
 /* A line to describe a TGSI instruction for building mock shaders. */
 struct MockCodeline {
@@ -60,6 +62,20 @@ struct MockCodelineWithSwizzle {
    vector<pair<int, const char *>> tex_offsets;
 };
 
+/* A line to describe a TGSI instruction with reladdr.
+ */
+struct MockCodelineWithReladdr {
+   MockCodelineWithReladdr(unsigned _op): op(_op) {}
+   MockCodelineWithReladdr(unsigned _op, const vector<tuple<int,int,int>>& _dst,
+                           const vector<tuple<int,int,int>>& _src,
+                           const vector<tuple<int,int,int>>&_to):
+      op(_op), dst(_dst), src(_src), tex_offsets(_to){}
+   unsigned op;
+   vector<tuple<int,int,int>> dst;
+   vector<tuple<int,int,int>> src;
+   vector<tuple<int,int,int>> tex_offsets;
+};
+
 /* A few constants that will notbe tracked as temporary registers by the
  * mock shader.
  */
@@ -74,6 +90,7 @@ class MockShader {
 public:
    MockShader(const vector<MockCodeline>& source);
    MockShader(const vector<MockCodelineWithSwizzle>& source);
+   MockShader(const vector<MockCodelineWithReladdr>& source);
    ~MockShader();
 
    void free();
@@ -83,11 +100,18 @@ public:
 private:
    st_src_reg create_src_register(int src_idx);
    st_dst_reg create_dst_register(int dst_idx);
+
+   st_src_reg *create_rel_src_register(int idx);
+   st_src_reg create_src_register(const tuple<int,int,int>& src);
+   st_dst_reg create_dst_register(const tuple<int,int,int>& dest);
+
    st_src_reg create_src_register(int src_idx, const char *swizzle);
    st_dst_reg create_dst_register(int dst_idx,int writemask);
    exec_list* program;
    int num_temps;
    void *mem_ctx;
+
+   vector<unique_ptr<st_src_reg>> reladdr_regs;
 };
 
 using expectation = vector<vector<int>>;
@@ -103,6 +127,7 @@ class LifetimeEvaluatorTest : public MesaTestWithMemCtx {
 protected:
    void run(const vector<MockCodeline>& code, const expectation& e);
    void run(const vector<MockCodelineWithSwizzle>& code, const expectation& e);
+   void run(const vector<MockCodelineWithReladdr>& code, const expectation& e);
 private:
    virtual void check(const vector<lifetime>& result, const expectation& e) = 0;
 };
@@ -1578,6 +1603,77 @@ TEST_F(LifetimeEvaluatorExactTest, OverwriteWrittenOnlyTemps)
    run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
 }
 
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr1)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {{in1,0,0}}, {}},
+      { TGSI_OPCODE_MOV , {{2,0,0}}, {{in0,1,0}}, {}},
+      { TGSI_OPCODE_MOV , {{out0,0,0}}, {{2,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr2)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {{in1,0,0}}, {}},
+      { TGSI_OPCODE_MOV , {{2,0,0}}, {{in0,0,1}}, {}},
+      { TGSI_OPCODE_MOV , {{out0,0,0}}, {{2,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr1)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {}, {{in1,0,0}}},
+      { TGSI_OPCODE_MOV , {{2,0,0}}, {}, {{in0,1,0}}},
+      { TGSI_OPCODE_MOV , {{out0,0,0}}, {{2,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr2)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {}, {{in1,0,0}}},
+      { TGSI_OPCODE_MOV , {{2,0,0}}, {}, {{in0,0,1}}},
+      { TGSI_OPCODE_MOV , {{out0,0,0}}, {{2,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
+}
+
+/* Check lifetime estimation with a relative addressing in dst */
+TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr1)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {{in0,0,0}}, {}},
+      { TGSI_OPCODE_MOV , {{out0,1,0}}, {{in1,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}}));
+}
+
+/* Check lifetime estimation with a relative addressing in dst */
+TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
+{
+   const vector<MockCodelineWithReladdr> code = {
+      { TGSI_OPCODE_MOV , {{1,0,0}}, {{in0,0,0}}, {}},
+      { TGSI_OPCODE_MOV , {{out0,0,1}}, {{in1,0,0}}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,1}}));
+}
+
+
 /* Same register is only written twice. This should not happen,
  * but to handle the case we want the register to life
  * at least past the last write instruction
@@ -1818,6 +1914,43 @@ MockShader::MockShader(const vector<MockCodelineWithSwizzle>& source):
    ++num_temps;
 }
 
+MockShader::MockShader(const vector<MockCodelineWithReladdr>& source):
+   num_temps(0)
+{
+   mem_ctx = ralloc_context(NULL);
+
+   program = new(mem_ctx) exec_list();
+
+   for (MockCodelineWithReladdr i: source) {
+      glsl_to_tgsi_instruction *next_instr = new(mem_ctx) glsl_to_tgsi_instruction();
+      next_instr->op = i.op;
+      next_instr->info = tgsi_get_opcode_info(i.op);
+
+      assert(i.src.size() < 4);
+      assert(i.dst.size() < 3);
+      assert(i.tex_offsets.size() < 3);
+
+      for (unsigned k = 0; k < i.src.size(); ++k) {
+         next_instr->src[k] = create_src_register(i.src[k]);
+      }
+      for (unsigned k = 0; k < i.dst.size(); ++k) {
+         next_instr->dst[k] = create_dst_register(i.dst[k]);
+      }
+      next_instr->tex_offset_num_offset = i.tex_offsets.size();
+      if (next_instr->tex_offset_num_offset > 0) {
+         next_instr->tex_offsets = new st_src_reg[i.tex_offsets.size()];
+         for (unsigned k = 0; k < i.tex_offsets.size(); ++k) {
+            next_instr->tex_offsets[k] = create_src_register(i.tex_offsets[k]);
+         }
+      } else {
+         next_instr->tex_offsets = nullptr;
+      }
+      program->push_tail(next_instr);
+   }
+   ++num_temps;
+}
+
+
 MockShader::MockShader(const vector<MockCodeline>& source):
    num_temps(0)
 {
@@ -1895,6 +2028,53 @@ st_src_reg MockShader::create_src_register(int src_idx)
       idx = 1 - src_idx;
    }
    return st_src_reg(file, idx, GLSL_TYPE_INT);
+}
+
+st_src_reg *MockShader::create_rel_src_register(int idx)
+{
+   st_src_reg *retval = new st_src_reg(PROGRAM_TEMPORARY, idx, GLSL_TYPE_INT);
+   reladdr_regs.push_back(unique_ptr<st_src_reg>(retval));
+   if (idx > num_temps)
+      num_temps = idx;
+   return retval;
+}
+
+st_src_reg MockShader::create_src_register(const tuple<int,int,int>& src)
+{
+   int src_idx = std::get<0>(src);
+   int relidx1 = std::get<1>(src);
+   int relidx2 = std::get<2>(src);
+
+   st_src_reg retval = create_src_register(src_idx);
+   if (src_idx >= 0) {
+      if (relidx1 || relidx2) {
+         retval.file = PROGRAM_ARRAY;
+         if (relidx1)
+            retval.reladdr = create_rel_src_register(relidx1);
+         if (relidx2)
+            retval.reladdr2 = create_rel_src_register(relidx2);
+      }
+   }
+   return retval;
+}
+
+st_dst_reg MockShader::create_dst_register(const tuple<int,int,int>& dst)
+{
+   int dst_idx = std::get<0>(dst);
+   int relidx1 = std::get<1>(dst);
+   int relidx2 = std::get<2>(dst);
+
+   st_dst_reg retval = create_dst_register(dst_idx);
+   if (dst_idx >= 0) {
+      if (relidx1 || relidx2) {
+         retval.file = PROGRAM_ARRAY;
+         if (relidx1)
+            retval.reladdr = create_rel_src_register(relidx1);
+         if (relidx2)
+            retval.reladdr2 = create_rel_src_register(relidx2);
+      }
+   }
+   return retval;
 }
 
 st_src_reg MockShader::create_src_register(int src_idx, const char *sw)
@@ -1984,6 +2164,20 @@ void LifetimeEvaluatorTest::run(const vector<MockCodeline>& code, const expectat
 }
 
 void LifetimeEvaluatorTest::run(const vector<MockCodelineWithSwizzle>& code,
+                                const expectation& e)
+{
+   MockShader shader(code);
+   std::vector<lifetime> result(shader.get_num_temps());
+
+   bool success =
+         get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
+                                               shader.get_num_temps(), &result[0]);
+   ASSERT_TRUE(success);
+   ASSERT_EQ(result.size(), e.size());
+   check(result, e);
+}
+
+void LifetimeEvaluatorTest::run(const vector<MockCodelineWithReladdr>& code,
                                 const expectation& e)
 {
    MockShader shader(code);

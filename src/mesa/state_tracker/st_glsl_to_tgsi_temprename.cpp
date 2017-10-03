@@ -918,6 +918,31 @@ static const char *tgsi_file_names[PROGRAM_FILE_MAX] =  {
    "IMM", "BUF",  "MEM",  "IMAGE"
 };
 
+static std::ostream& operator << (std::ostream& os, const st_src_reg& reg)
+{
+   os << tgsi_file_names[reg.file];
+   if (reg.file == PROGRAM_ARRAY)
+      os << "(" << reg.array_id << ")";
+
+   os << "[";
+   if (reg.reladdr)
+      os << *reg.reladdr << "+";
+   if (reg.reladdr2)
+      os << *reg.reladdr2 << "+";
+   os << "]";
+
+   if (reg.swizzle != SWIZZLE_XYZW) {
+      os << ".";
+      for (int idx = 0; idx < 4; ++idx) {
+         int swz = GET_SWZ(reg.swizzle, idx);
+         if (swz < 4) {
+            os << swizzle_txt[swz];
+         }
+      }
+   }
+   return os;
+}
+
 static
 void dump_instruction(int line, prog_scope *scope,
                       const glsl_to_tgsi_instruction& inst)
@@ -954,7 +979,12 @@ void dump_instruction(int line, prog_scope *scope,
       if (dst.file == PROGRAM_ARRAY)
          cerr << "(" << dst.array_id << ")";
 
-      cerr << "[" << dst.index << "]";
+      cerr << "[";
+      if (dst.reladdr)
+         cerr << *dst.reladdr;
+      if (dst.reladdr2)
+         cerr << *dst.reladdr2;
+      cerr << dst.index << "]";
 
       if (dst.writemask != TGSI_WRITEMASK_XYZW) {
          cerr << ".";
@@ -970,19 +1000,7 @@ void dump_instruction(int line, prog_scope *scope,
    for (unsigned j = 0; j < num_inst_src_regs(&inst); j++) {
       if (j > 0)
          cerr << ", ";
-
-      const st_src_reg& src = inst.src[j];
-      cerr << tgsi_file_names[src.file]
-           << "[" << src.index << "]";
-      if (src.swizzle != SWIZZLE_XYZW) {
-         cerr << ".";
-         for (int idx = 0; idx < 4; ++idx) {
-            int swz = GET_SWZ(src.swizzle, idx);
-            if (swz < 4) {
-               cerr << swizzle_txt[swz];
-            }
-         }
-      }
+      cerr << inst.src[j];
    }
 
    if (inst.tex_offset_num_offset > 0) {
@@ -990,19 +1008,7 @@ void dump_instruction(int line, prog_scope *scope,
       for (unsigned j = 0; j < inst.tex_offset_num_offset; j++) {
          if (j > 0)
             cerr << ", ";
-
-         const st_src_reg& src = inst.tex_offsets[j];
-         cerr << tgsi_file_names[src.file]
-               << "[" << src.index << "]";
-         if (src.swizzle != SWIZZLE_XYZW) {
-            cerr << ".";
-            for (int idx = 0; idx < 4; ++idx) {
-               int swz = GET_SWZ(src.swizzle, idx);
-               if (swz < 4) {
-                  cerr << swizzle_txt[swz];
-               }
-            }
-         }
+         cerr << inst.tex_offsets[j];
       }
    }
    cerr << "\n";

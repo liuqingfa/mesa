@@ -276,7 +276,7 @@ TEST_F(LifetimeEvaluatorExactTest, MoveInIfInNestedLoop)
  * - value must survive from first write to last read in loop
  * for now we only check that the minimum life time is correct.
  */
-TEST_F(LifetimeEvaluatorAtLeastTest, WriteInIfAndElseInLoop)
+TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseInLoop)
 {
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -316,6 +316,131 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseReadInElseInLoop)
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,9}, {1,9}, {7,10}}));
+}
+
+
+/* In loop if/else value written in else path and read outside
+ * - value must survive the whole loop
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInElseReadInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_ADD, {3}, {1,2}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_UADD, {1}, {3,in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,9}, {1,8}, {1,8}}));
+}
+
+/* In loop if/else value written in else path twice and read outside
+ * - value must survive the whole loop
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInElseTwiceReadInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_ADD, {3}, {1,2}, {}},
+      {     TGSI_OPCODE_ADD, {3}, {1,3}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_UADD, {1}, {3,in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,10}, {1,9}, {1,9}}));
+}
+
+/* In loop if/else value written in if, and then in different else path
+ * and read outside - value must survive the whole loop
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInOneIfandInAnotherElseInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_ADD, {2}, {1,1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_UADD, {1}, {2,in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,11}, {1,10}}));
+}
+
+/* In first loop value is written in both if and else, in second loop
+ * value is written only in if - must survive the second loop.
+ * However, the tracking is currently not able to restrict the lifetime
+ * in the first loop, hence the "AtLeast" test.
+ */
+TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_UADD, {2}, {1,in1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_ADD, {2}, {in0,1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_UADD, {1}, {2,in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,14}, {3,13}}));
+}
+
+/* In first loop value is written in both if and else, in second loop
+ * value is also written in both, but first read in if - must survive the second loop.
+ * However, the tracking is currently not able to restrict the lifetime
+ * in the first loop, hence the "AtLeast" test.
+ */
+TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_UADD, {2}, {1,in1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in1}, {}},
+      {     TGSI_OPCODE_ADD, {2}, {2,1}, {}},
+      {   TGSI_OPCODE_ELSE },
+      {     TGSI_OPCODE_MOV, {2}, {1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_UADD, {1}, {2,in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,16}, {3,15}}));
 }
 
 /* In loop if/else read in one path before written in the same loop
@@ -379,7 +504,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopBeforeWriteAndLifeToTheEnd)
  * life time is at least what is required, but we know that the
  * implementation doesn't do a full check and sets larger boundaries
  */
-TEST_F(LifetimeEvaluatorAtLeastTest, NestedIfInLoopAlwaysWriteButNotPropagated)
+TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
 {
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
@@ -401,6 +526,164 @@ TEST_F(LifetimeEvaluatorAtLeastTest, NestedIfInLoopAlwaysWriteButNotPropagated)
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {3,14}}));
+}
+
+TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_IF, {}, {in0}, {}},
+      {         TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {       TGSI_OPCODE_ELSE},
+      {         TGSI_OPCODE_IF, {}, {in0}, {}},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ELSE},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ENDIF},
+      {       TGSI_OPCODE_ENDIF},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,18}, {18, 20}}));
+}
+
+/* Here the nested if condition is of no consequence to the life time
+ * because the variable was already written in the enclosing if-branch.
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+}
+
+/* Here the read before write in the nested if is of no consequence to the
+ * life timebecause the variable was already written in the enclosing if-branch.
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopWithReadResolvedInOuterScope)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_ADD, {1}, {in0, 1}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+}
+
+/* Here the nested if conditiojn is of no consequence to the life time
+ * because the variable was already written in the enclosing else-branch.
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+}
+
+TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_IF, {}, {in0}, {}},
+      {         TGSI_OPCODE_IF, {}, {in0}, {}},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ELSE},
+      {           TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {         TGSI_OPCODE_ENDIF},
+      {       TGSI_OPCODE_ELSE},
+      {         TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {       TGSI_OPCODE_ENDIF},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ADD, {2}, {1, in1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {5,18}, {18, 20}}));
+}
+
+
+/* Write in nested ifs, outer if is not in loop, hence the conditional write
+ * there is of no consequence
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteParentIfOutsideLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_IF, {}, {in0}, {}},
+      {   TGSI_OPCODE_BGNLOOP },
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {2}, {1}, {}},
+      {   TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_ELSE},
+      {   TGSI_OPCODE_MOV, {2}, {in1}, {}},
+      { TGSI_OPCODE_ENDIF},
+      { TGSI_OPCODE_MOV, {out0}, {2}, {}},
+
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {3,12}, {12, 17}}));
 }
 
 /* The value is written in a loop and in a nested if, but
@@ -427,6 +710,153 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopWriteNotAlways)
    };
    run (code, expectation({{-1,-1}, {0,13}}));
 }
+
+/* The value is written in a loop in both branches of if-else but also
+ * read in the else after writing, should have no
+ */
+TEST_F(LifetimeEvaluatorExactTest, IfElseWriteInLoopAlsoReadInElse)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      {     TGSI_OPCODE_MUL, {1}, {in0, 1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,7}}));
+}
+
+/* nested if-else in loop. The value is written in a loop in both branches
+ * of a nested if-else, but only within the outer else.
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInNestedIfElseOuterElseOnly)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_ADD, {1}, {in1, in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,10}}));
+}
+
+/* Nested if-else in loop. The value is written in a loop in both branches
+ * of if-else but also read in the second nested else before writing.
+ * Is conditional.
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerElseInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_ADD, {1}, {in1, 1}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,15}}));
+}
+
+/* Nested if-else in loop. The value is written in a loop in both branches
+ * of if-else but also read in the second nested else before writing.
+ * Is conditional.
+ */
+TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerIfInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_IF, {}, {in0}, {}},
+      {       TGSI_OPCODE_ADD, {1}, {in1, 1}, {}},
+      {     TGSI_OPCODE_ELSE},
+      {       TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {     TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,15}}));
+}
+
+
+/* if-else in loop. The value is written in a loop in both branches
+ * of if-else but also read in the second else before writing can count
+ * as unconditionally written.
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInOneElseBranchReadFirstInOtherInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_ADD, {1}, {in1, 1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,11}}));
+}
+
+/* if-else in loop. The value is written in a loop in both branches
+ * of if-else then a second if is irrelevant.
+ */
+TEST_F(LifetimeEvaluatorExactTest, WriteInIfElseBranchSecondIfInLoop)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ELSE},
+      {     TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_IF, {}, {in0}, {}},
+      {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {2,9}}));
+}
+
 
 /* A continue in the loop is not relevant */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterContinue)

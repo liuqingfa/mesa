@@ -29,35 +29,50 @@
 
 #include <utility>
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <iostream>
 
 using std::vector;
 using std::pair;
 using std::make_pair;
+using std::transform;
+using std::copy;
+
+/* Use this to make the compiler pick the swizzle constructor below */
+struct SWZ {};
 
 /* A line to describe a TGSI instruction for building mock shaders. */
 struct MockCodeline {
-   MockCodeline(unsigned _op): op(_op) {}
-   MockCodeline(unsigned _op, const vector<int>& _dst, const vector<int>& _src, const vector<int>&_to):
-      op(_op), dst(_dst), src(_src), tex_offsets(_to){}
-   unsigned op;
-   vector<int> dst;
-   vector<int> src;
-   vector<int> tex_offsets;
-};
+   MockCodeline(unsigned _op): op(_op), max_temp_id(0){}
+   MockCodeline(unsigned _op, const vector<int>& _dst, const vector<int>& _src,
+                const vector<int>&_to);
 
-/* A line to describe a TGSI instruction with swizzeling and write makss
- * for building mock shaders.
- */
-struct MockCodelineWithSwizzle {
-   MockCodelineWithSwizzle(unsigned _op): op(_op) {}
-   MockCodelineWithSwizzle(unsigned _op, const vector<pair<int,int>>& _dst,
-                           const vector<pair<int, const char *>>& _src,
-                           const vector<pair<int, const char *>>&_to):
-      op(_op), dst(_dst), src(_src), tex_offsets(_to){}
+   MockCodeline(unsigned _op, const vector<pair<int,int>>& _dst,
+                const vector<pair<int, const char *>>& _src,
+                const vector<pair<int, const char *>>&_to, SWZ with_swizzle);
+
+   int get_max_reg_id() const { return max_temp_id;}
+
+   glsl_to_tgsi_instruction *get_codeline() const;
+
+   static void set_mem_ctx(void *ctx);
+
+private:
+   st_src_reg create_src_register(int src_idx);
+   st_src_reg create_src_register(int src_idx, const char *swizzle);
+   st_src_reg create_src_register(int src_idx, gl_register_file file);
+
+   st_dst_reg create_dst_register(int dst_idx);
+   st_dst_reg create_dst_register(int dst_idx, int writemask);
+   st_dst_reg create_dst_register(int dst_idx, gl_register_file file);
+
    unsigned op;
-   vector<pair<int,int>> dst;
-   vector<pair<int, const char *>> src;
-   vector<pair<int, const char *>> tex_offsets;
+   vector<st_dst_reg> dst;
+   vector<st_src_reg> src;
+   vector<st_src_reg> tex_offsets;
+
+   int max_temp_id;
+   static void *mem_ctx;
 };
 
 /* A few constants that will notbe tracked as temporary registers by the
@@ -72,22 +87,14 @@ const int out1 = -2;
 
 class MockShader {
 public:
-   MockShader(const vector<MockCodeline>& source);
-   MockShader(const vector<MockCodelineWithSwizzle>& source);
-   ~MockShader();
-
-   void free();
+   MockShader(const vector<MockCodeline>& source, void *ctx);
 
    exec_list* get_program() const;
    int get_num_temps() const;
+
 private:
-   st_src_reg create_src_register(int src_idx);
-   st_dst_reg create_dst_register(int dst_idx);
-   st_src_reg create_src_register(int src_idx, const char *swizzle);
-   st_dst_reg create_dst_register(int dst_idx,int writemask);
    exec_list* program;
    int num_temps;
-   void *mem_ctx;
 };
 
 using expectation = vector<vector<int>>;
@@ -102,7 +109,6 @@ protected:
 class LifetimeEvaluatorTest : public MesaTestWithMemCtx {
 protected:
    void run(const vector<MockCodeline>& code, const expectation& e);
-   void run(const vector<MockCodelineWithSwizzle>& code, const expectation& e);
 private:
    virtual void check(const vector<lifetime>& result, const expectation& e) = 0;
 };
@@ -136,20 +142,8 @@ protected:
 class RegisterLifetimeAndRemappingTest : public RegisterRemappingTest  {
 protected:
    using RegisterRemappingTest::run;
-   template <typename CodeLine>
-   void run(const vector<CodeLine>& code, const vector<int>& expect);
+   void run(const vector<MockCodeline>& code, const vector<int>& expect);
 };
-
-template <typename CodeLine>
-void RegisterLifetimeAndRemappingTest::run(const vector<CodeLine>& code,
-                                  const vector<int>& expect)
-{
-     MockShader shader(code);
-     std::vector<lifetime> lt(shader.get_num_temps());
-     get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
-                                           shader.get_num_temps(), &lt[0]);
-     this->run(lt, expect);
-}
 
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAdd)
 {
@@ -831,80 +825,81 @@ TEST_F(LifetimeEvaluatorExactTest, FirstWriteAtferReadInNestedLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X)
 {
-   const vector<MockCodelineWithSwizzle> code = {
-      MockCodelineWithSwizzle(TGSI_OPCODE_BGNLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "x"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "y"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDIF),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_END)
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "x"), {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
+      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}, SWZ()},
+      { TGSI_OPCODE_ENDLOOP},
+      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Y)
 {
-   const vector<MockCodelineWithSwizzle> code = {
-      MockCodelineWithSwizzle(TGSI_OPCODE_BGNLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "y"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDIF),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_END)
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
+      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}, SWZ()},
+      { TGSI_OPCODE_ENDLOOP},
+      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Z)
 {
-   const vector<MockCodelineWithSwizzle> code = {
-      MockCodelineWithSwizzle(TGSI_OPCODE_BGNLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_Z), SRC(in1, "y"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDIF),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xz"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_END)
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
+      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_Z), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xz"), {}, SWZ()},
+      { TGSI_OPCODE_ENDLOOP},
+      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_W)
 {
-   const vector<MockCodelineWithSwizzle> code = {
-      MockCodelineWithSwizzle(TGSI_OPCODE_BGNLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_W), SRC(in1, "y"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDIF),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xw"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_END)
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
+      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_W), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xw"), {}, SWZ()},
+      { TGSI_OPCODE_ENDLOOP},
+      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X_Read_Y_Before)
 {
-   const vector<MockCodelineWithSwizzle> code = {
-      MockCodelineWithSwizzle(TGSI_OPCODE_BGNLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(2, WRITEMASK_XYZW), SRC(1, "yyyy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDIF),
-      MockCodelineWithSwizzle(TGSI_OPCODE_MOV, DST(1, WRITEMASK_YZW), SRC(2, "yyzw"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ENDLOOP),
-      MockCodelineWithSwizzle(TGSI_OPCODE_ADD, DST(out0, WRITEMASK_XYZW), SRC2(2, "yyzw", 1, "xyxy"), {}),
-      MockCodelineWithSwizzle(TGSI_OPCODE_END)
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_BGNLOOP},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
+      {     TGSI_OPCODE_MOV, DST(2, WRITEMASK_XYZW), SRC(1, "yyyy"), {}, SWZ()},
+      {   TGSI_OPCODE_ENDIF},
+      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_YZW), SRC(2, "yyzw"), {}, SWZ()},
+      { TGSI_OPCODE_ENDLOOP},
+      { TGSI_OPCODE_ADD, DST(out0, WRITEMASK_XYZW),
+                         SRC2(2, "yyzw", 1, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,7}, {0,7}}));
 }
@@ -917,7 +912,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionInLoopAndCondition)
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
-      {     TGSI_OPCODE_IF, {0}, {in0}, {} },
+      {     TGSI_OPCODE_IF, {}, {in0}, {} },
       {       TGSI_OPCODE_ADD, {1}, {1,in0}, {}},
       {     TGSI_OPCODE_ENDIF},
       {     TGSI_OPCODE_MOV, {1}, {in1}, {}},
@@ -1004,7 +999,6 @@ TEST_F(LifetimeEvaluatorExactTest, ReadOnly)
    };
    run (code, expectation({{-1,-1}, {-1,-1}}));
 }
-
 
 /* Test handling of missing END marker
 */
@@ -1345,83 +1339,171 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyR
 }
 
 /* Implementation of helper and test classes */
-MockShader::~MockShader()
+void *MockCodeline::mem_ctx = nullptr;
+
+MockCodeline::MockCodeline(unsigned _op, const vector<int>& _dst,
+                           const vector<int>& _src, const vector<int>&_to):
+   op(_op),
+   max_temp_id(0)
 {
-   free();
-   ralloc_free(mem_ctx);
+   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
+             [this](int i) { return create_dst_register(i);});
+
+   transform(_src.begin(), _src.end(), std::back_inserter(src),
+             [this](int i) { return create_src_register(i);});
+
+   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
+             [this](int i) { return create_src_register(i);});
+
 }
 
-MockShader::MockShader(const vector<MockCodelineWithSwizzle>& source):
-   num_temps(0)
+MockCodeline::MockCodeline(unsigned _op, const vector<pair<int,int>>& _dst,
+                           const vector<pair<int, const char *>>& _src,
+                           const vector<pair<int, const char *>>&_to,
+                           SWZ with_swizzle):
+   op(_op),
+   max_temp_id(0)
 {
-   mem_ctx = ralloc_context(NULL);
+   (void)with_swizzle;
 
-   program = new(mem_ctx) exec_list();
+   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
+             [this](pair<int,int> r) {
+      return create_dst_register(r.first, r.second);
+   });
 
-   for (MockCodelineWithSwizzle i: source) {
-      glsl_to_tgsi_instruction *next_instr = new(mem_ctx) glsl_to_tgsi_instruction();
-      next_instr->op = i.op;
-      next_instr->info = tgsi_get_opcode_info(i.op);
+   transform(_src.begin(), _src.end(), std::back_inserter(src),
+             [this](const pair<int,const char *>& r) {
+      return create_src_register(r.first, r.second);
+   });
 
-      assert(i.src.size() < 4);
-      assert(i.dst.size() < 3);
-      assert(i.tex_offsets.size() < 3);
-
-      for (unsigned k = 0; k < i.src.size(); ++k) {
-         next_instr->src[k] = create_src_register(i.src[k].first, i.src[k].second);
-      }
-      for (unsigned k = 0; k < i.dst.size(); ++k) {
-         next_instr->dst[k] = create_dst_register(i.dst[k].first, i.dst[k].second);
-      }
-      next_instr->tex_offset_num_offset = i.tex_offsets.size();
-      if (next_instr->tex_offset_num_offset > 0) {
-         next_instr->tex_offsets = new st_src_reg[i.tex_offsets.size()];
-         for (unsigned k = 0; k < i.tex_offsets.size(); ++k) {
-            next_instr->tex_offsets[k] = create_src_register(i.tex_offsets[k].first,
-                                                             i.tex_offsets[k].second);
-         }
-      } else {
-         next_instr->tex_offsets = nullptr;
-      }
-      program->push_tail(next_instr);
-   }
-   ++num_temps;
+   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
+             [this](const pair<int,const char *>& r) {
+      return create_src_register(r.first, r.second);
+   });
 }
 
-MockShader::MockShader(const vector<MockCodeline>& source):
+st_src_reg MockCodeline::create_src_register(int src_idx)
+{
+   return create_src_register(src_idx,
+                              src_idx < 0 ? PROGRAM_INPUT : PROGRAM_TEMPORARY);
+}
+
+st_src_reg MockCodeline::create_src_register(int src_idx, const char *sw)
+{
+   st_src_reg result = create_src_register(src_idx);
+
+   for (int i = 0; i < 4; ++i) {
+      switch (sw[i]) {
+      case 'x': break; /* is zero */
+      case 'y': result.swizzle |= SWIZZLE_Y << 3 * i; break;
+      case 'z': result.swizzle |= SWIZZLE_Z << 3 * i; break;
+      case 'w': result.swizzle |= SWIZZLE_W << 3 * i; break;
+      }
+   }
+
+   return result;
+}
+
+st_src_reg MockCodeline::create_src_register(int src_idx, gl_register_file file)
+{
+   st_src_reg retval;
+   retval.file = file;
+   retval.index = src_idx >= 0 ? src_idx  : 1 - src_idx;
+
+   if (file == PROGRAM_TEMPORARY) {
+      if (max_temp_id < src_idx)
+         max_temp_id = src_idx;
+   } else if (file == PROGRAM_ARRAY) {
+      retval.array_id = 1;
+   }
+   retval.swizzle = SWIZZLE_XYZW;
+   retval.type = GLSL_TYPE_INT;
+
+   return retval;
+}
+
+st_dst_reg MockCodeline::create_dst_register(int dst_idx,int writemask)
+{
+   gl_register_file file;
+   int idx = 0;
+   if (dst_idx >= 0) {
+      file = PROGRAM_TEMPORARY;
+      idx = dst_idx;
+      if (max_temp_id < idx)
+         max_temp_id = idx;
+   } else {
+      file = PROGRAM_OUTPUT;
+      idx = 1 - dst_idx;
+   }
+   return st_dst_reg(file, writemask, GLSL_TYPE_INT, idx);
+}
+
+st_dst_reg MockCodeline::create_dst_register(int dst_idx)
+{
+   return create_dst_register(dst_idx, dst_idx < 0 ?
+                                 PROGRAM_OUTPUT : PROGRAM_TEMPORARY);
+}
+
+st_dst_reg MockCodeline::create_dst_register(int dst_idx, gl_register_file file)
+{
+   st_dst_reg retval;
+   retval.file = file;
+   retval.index = dst_idx >= 0 ? dst_idx  : 1 - dst_idx;
+
+   if (file == PROGRAM_TEMPORARY) {
+      if (max_temp_id < dst_idx)
+         max_temp_id = dst_idx;
+   } else if (file == PROGRAM_ARRAY) {
+      retval.array_id = 1;
+   }
+   retval.writemask = 0xF;
+   retval.type = GLSL_TYPE_INT;
+
+   return retval;
+}
+
+glsl_to_tgsi_instruction *MockCodeline::get_codeline() const
+{
+   glsl_to_tgsi_instruction *next_instr = new(mem_ctx) glsl_to_tgsi_instruction();
+   next_instr->op = op;
+   next_instr->info = tgsi_get_opcode_info(op);
+
+   assert(src.size() == num_inst_src_regs(next_instr));
+   assert(dst.size() == num_inst_dst_regs(next_instr));
+   assert(tex_offsets.size() < 3);
+
+   copy(src.begin(), src.end(), next_instr->src);
+   copy(dst.begin(), dst.end(), next_instr->dst);
+
+   next_instr->tex_offset_num_offset = tex_offsets.size();
+
+   if (next_instr->tex_offset_num_offset > 0) {
+      next_instr->tex_offsets = ralloc_array(mem_ctx, st_src_reg, tex_offsets.size());
+      copy(tex_offsets.begin(), tex_offsets.end(), next_instr->tex_offsets);
+   } else {
+      next_instr->tex_offsets = nullptr;
+   }
+   return next_instr;
+}
+
+void MockCodeline::set_mem_ctx(void *ctx)
+{
+   mem_ctx = ctx;
+}
+
+
+MockShader::MockShader(const vector<MockCodeline>& source, void *ctx):
    num_temps(0)
 {
-   mem_ctx = ralloc_context(NULL);
+   program = new(ctx) exec_list();
 
-   program = new(mem_ctx) exec_list();
-
-   for (MockCodeline i: source) {
-      glsl_to_tgsi_instruction *next_instr = new(mem_ctx) glsl_to_tgsi_instruction();
-      next_instr->op = i.op;
-      next_instr->info = tgsi_get_opcode_info(i.op);
-
-      assert(i.src.size() < 4);
-      assert(i.dst.size() < 3);
-      assert(i.tex_offsets.size() < 3);
-
-      for (unsigned k = 0; k < i.src.size(); ++k) {
-         next_instr->src[k] = create_src_register(i.src[k]);
-      }
-      for (unsigned k = 0; k < i.dst.size(); ++k) {
-         next_instr->dst[k] = create_dst_register(i.dst[k]);
-      }
-      next_instr->tex_offset_num_offset = i.tex_offsets.size();
-      if (next_instr->tex_offset_num_offset > 0) {
-         next_instr->tex_offsets = new st_src_reg[i.tex_offsets.size()];
-         for (unsigned k = 0; k < i.tex_offsets.size(); ++k) {
-            next_instr->tex_offsets[k] = create_src_register(i.tex_offsets[k]);
-         }
-      } else {
-         next_instr->tex_offsets = nullptr;
-      }
-
-      program->push_tail(next_instr);
+   for (const MockCodeline& i: source) {
+      program->push_tail(i.get_codeline());
+      int t = i.get_max_reg_id();
+      if (t > num_temps)
+         num_temps = t;
    }
+
    ++num_temps;
 }
 
@@ -1430,138 +1512,33 @@ int MockShader::get_num_temps() const
    return num_temps;
 }
 
-
 exec_list* MockShader::get_program() const
 {
    return program;
 }
 
-void MockShader::free()
-{
-   /* The list is not fully initialized, so
-    * tearing it down also must be done manually. */
-   exec_node *p;
-   while ((p = program->pop_head())) {
-      glsl_to_tgsi_instruction * instr = static_cast<glsl_to_tgsi_instruction *>(p);
-      if (instr->tex_offset_num_offset > 0)
-         delete[] instr->tex_offsets;
-      delete p;
-   }
-   program = 0;
-   num_temps = 0;
-}
-
-st_src_reg MockShader::create_src_register(int src_idx)
-{
-   gl_register_file file;
-   int idx = 0;
-   if (src_idx >= 0) {
-      file = PROGRAM_TEMPORARY;
-      idx = src_idx;
-      if (num_temps < idx)
-         num_temps = idx;
-   } else {
-      file = PROGRAM_INPUT;
-      idx = 1 - src_idx;
-   }
-   return st_src_reg(file, idx, GLSL_TYPE_INT);
-}
-
-st_src_reg MockShader::create_src_register(int src_idx, const char *sw)
-{
-   uint16_t swizzle = 0;
-   for (int i = 0; i < 4; ++i) {
-      switch (sw[i]) {
-      case 'x': break; /* is zero */
-      case 'y': swizzle |= SWIZZLE_Y << 3 * i; break;
-      case 'z': swizzle |= SWIZZLE_Z << 3 * i; break;
-      case 'w': swizzle |= SWIZZLE_W << 3 * i; break;
-      }
-   }
-
-   gl_register_file file;
-   int idx = 0;
-   if (src_idx >= 0) {
-      file = PROGRAM_TEMPORARY;
-      idx = src_idx;
-      if (num_temps < idx)
-         num_temps = idx;
-   } else {
-      file = PROGRAM_INPUT;
-      idx = 1 - src_idx;
-   }
-   st_src_reg result(file, idx, GLSL_TYPE_INT);
-   result.swizzle = swizzle;
-   return result;
-}
-
-st_dst_reg MockShader::create_dst_register(int dst_idx,int writemask)
-{
-   gl_register_file file;
-   int idx = 0;
-   if (dst_idx >= 0) {
-      file = PROGRAM_TEMPORARY;
-      idx = dst_idx;
-      if (num_temps < idx)
-         num_temps = idx;
-   } else {
-      file = PROGRAM_OUTPUT;
-      idx = 1 - dst_idx;
-   }
-   return st_dst_reg(file, writemask, GLSL_TYPE_INT, idx);
-}
-
-st_dst_reg MockShader::create_dst_register(int dst_idx)
-{
-   gl_register_file file;
-   int idx = 0;
-   if (dst_idx >= 0) {
-      file = PROGRAM_TEMPORARY;
-      idx = dst_idx;
-      if (num_temps < idx)
-         num_temps = idx;
-   } else {
-      file = PROGRAM_OUTPUT;
-      idx = 1 - dst_idx;
-   }
-   return st_dst_reg(file,0xF, GLSL_TYPE_INT, idx);
-}
-
-
 void MesaTestWithMemCtx::SetUp()
 {
    mem_ctx = ralloc_context(nullptr);
+   MockCodeline::set_mem_ctx(mem_ctx);
 }
 
 void MesaTestWithMemCtx::TearDown()
 {
    ralloc_free(mem_ctx);
+   MockCodeline::set_mem_ctx(nullptr);
    mem_ctx = nullptr;
 }
 
 void LifetimeEvaluatorTest::run(const vector<MockCodeline>& code, const expectation& e)
 {
-   MockShader shader(code);
+   MockShader shader(code, mem_ctx);
    std::vector<lifetime> result(shader.get_num_temps());
 
    bool success =
          get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
                                                shader.get_num_temps(), &result[0]);
 
-   ASSERT_TRUE(success);
-   ASSERT_EQ(result.size(), e.size());
-   check(result, e);
-}
-
-void LifetimeEvaluatorTest::run(const vector<MockCodelineWithSwizzle>& code,
-                                const expectation& e)
-{
-   MockShader shader(code);
-   std::vector<lifetime> result(shader.get_num_temps());
-
-   bool success =
-         get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
-                                               shader.get_num_temps(), &result[0]);
    ASSERT_TRUE(success);
    ASSERT_EQ(result.size(), e.size());
    check(result, e);
@@ -1606,4 +1583,14 @@ void RegisterRemappingTest::run(const vector<lifetime>& lt,
    for(unsigned i = 1; i < remap.size(); ++i) {
       EXPECT_EQ(remap[i], expect[i]);
    }
+}
+
+void RegisterLifetimeAndRemappingTest::run(const vector<MockCodeline>& code,
+                                           const vector<int>& expect)
+{
+     MockShader shader(code, mem_ctx);
+     std::vector<lifetime> lt(shader.get_num_temps());
+     get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
+                                           shader.get_num_temps(), &lt[0]);
+     this->run(lt, expect);
 }

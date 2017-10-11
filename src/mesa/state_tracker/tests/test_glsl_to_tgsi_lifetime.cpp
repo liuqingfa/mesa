@@ -37,9 +37,13 @@ using std::pair;
 using std::make_pair;
 using std::transform;
 using std::copy;
+using std::tuple;
 
 /* Use this to make the compiler pick the swizzle constructor below */
 struct SWZ {};
+
+/* Use this to make the compiler pick the constructor with reladdr below */
+struct RA {};
 
 /* A line to describe a TGSI instruction for building mock shaders. */
 struct MockCodeline {
@@ -51,6 +55,10 @@ struct MockCodeline {
                 const vector<pair<int, const char *>>& _src,
                 const vector<pair<int, const char *>>&_to, SWZ with_swizzle);
 
+   MockCodeline(unsigned _op, const vector<tuple<int,int,int>>& _dst,
+                const vector<tuple<int,int,int>>& _src,
+                const vector<tuple<int,int,int>>&_to, RA with_reladdr);
+
    int get_max_reg_id() const { return max_temp_id;}
 
    glsl_to_tgsi_instruction *get_codeline() const;
@@ -61,11 +69,13 @@ private:
    st_src_reg create_src_register(int src_idx);
    st_src_reg create_src_register(int src_idx, const char *swizzle);
    st_src_reg create_src_register(int src_idx, gl_register_file file);
+   st_src_reg create_src_register(const tuple<int,int,int>& src);
+   st_src_reg *create_rel_src_register(int idx);
 
    st_dst_reg create_dst_register(int dst_idx);
    st_dst_reg create_dst_register(int dst_idx, int writemask);
    st_dst_reg create_dst_register(int dst_idx, gl_register_file file);
-
+   st_dst_reg create_dst_register(const tuple<int,int,int>& dest);
    unsigned op;
    vector<st_dst_reg> dst;
    vector<st_src_reg> src;
@@ -1674,6 +1684,92 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAfterBreak)
    run (code, expectation({{-1,-1}, {0,8}}));
 }
 
+
+#define MT(X,Y,Z) std::make_tuple(X,Y,Z)
+/* Check lifetime estimation with a relative addressing in src.
+ * Note, since the lifetime estimation always extends the lifetime
+ * at to at least one instruction after the last write, for the
+ * test the last read must be at least two instructions after the
+ * last write to obtain a proper test.
+ */
+
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr1)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      { TGSI_OPCODE_MOV, {2}, {in0}, {}},
+      { TGSI_OPCODE_MOV, {MT(3,0,0)}, {MT(2,1,0)}, {}, RA()},
+      { TGSI_OPCODE_MOV, {out0}, {3}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV , {1}, {in1}, {}},
+      { TGSI_OPCODE_MOV , {2}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(4,0,1)}, {}, RA()},
+      { TGSI_OPCODE_MOV , {out0}, {3}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}, {1,2},{2,3}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr1)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV , {1}, {in1}, {}},
+      { TGSI_OPCODE_MOV , {2}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(in2,0,0)}, {MT(5,1,0)}, RA()},
+      { TGSI_OPCODE_MOV , {out0}, {3}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+}
+
+/* Check lifetime estimation with a relative addressing in src */
+TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV , {1}, {in1}, {}},
+      { TGSI_OPCODE_MOV , {2}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(in2,0,0)}, {MT(2,0,1)}, RA()},
+      { TGSI_OPCODE_MOV , {out0}, {3}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+}
+
+/* Check lifetime estimation with a relative addressing in dst */
+TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr1)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV , {1}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {1}, {in1}, {}},
+      { TGSI_OPCODE_MOV , {MT(5,1,0)}, {MT(in1,0,0)}, {}, RA()},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}}));
+}
+
+/* Check lifetime estimation with a relative addressing in dst */
+TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
+{
+   const vector<MockCodeline> code = {
+      { TGSI_OPCODE_MOV , {1}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {2}, {in1}, {}},
+      { TGSI_OPCODE_MOV , {MT(5,0,1)}, {MT(in1,0,0)}, {}, RA()},
+      { TGSI_OPCODE_MOV , {out0}, {in0}, {}},
+      { TGSI_OPCODE_MOV , {out1}, {2}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, expectation({{-1,-1}, {0,2}, {1,4}}));
+}
+
 /* Test remapping table of registers. The tests don't assume
  * that the sorting algorithm used to sort the lifetimes
  * based on their 'begin' is stable.
@@ -1860,6 +1956,30 @@ MockCodeline::MockCodeline(unsigned _op, const vector<pair<int,int>>& _dst,
    });
 }
 
+MockCodeline::MockCodeline(unsigned _op, const vector<tuple<int,int,int>>& _dst,
+                           const vector<tuple<int,int,int>>& _src,
+                           const vector<tuple<int,int,int>>&_to, RA with_reladdr):
+   op(_op),
+   max_temp_id(0)
+{
+   (void)with_reladdr;
+
+   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
+             [this](const tuple<int,int,int>& r) {
+      return create_dst_register(r);
+   });
+
+   transform(_src.begin(), _src.end(), std::back_inserter(src),
+             [this](const tuple<int,int,int>& r) {
+      return create_src_register(r);
+   });
+
+   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
+             [this](const tuple<int,int,int>& r) {
+      return create_src_register(r);
+   });
+}
+
 st_src_reg MockCodeline::create_src_register(int src_idx)
 {
    return create_src_register(src_idx,
@@ -1900,6 +2020,44 @@ st_src_reg MockCodeline::create_src_register(int src_idx, gl_register_file file)
    return retval;
 }
 
+st_src_reg *MockCodeline::create_rel_src_register(int idx)
+{
+   st_src_reg *retval = ralloc(mem_ctx, st_src_reg);
+   *retval = st_src_reg(PROGRAM_TEMPORARY, idx, GLSL_TYPE_INT);
+   if (max_temp_id < idx)
+      max_temp_id = idx;
+   return retval;
+}
+
+st_src_reg MockCodeline::create_src_register(const tuple<int,int,int>& src)
+{
+   int src_idx = std::get<0>(src);
+   int relidx1 = std::get<1>(src);
+   int relidx2 = std::get<2>(src);
+
+   gl_register_file file = PROGRAM_TEMPORARY;
+   if (src_idx < 0)
+      file = PROGRAM_OUTPUT;
+   else if (relidx1 || relidx2) {
+      file = PROGRAM_ARRAY;
+   }
+
+   st_src_reg retval = create_src_register(src_idx, file);
+   if (src_idx >= 0) {
+      if (relidx1 || relidx2) {
+         retval.array_id = 1;
+         if (relidx1)
+            retval.reladdr = create_rel_src_register(relidx1);
+         if (relidx2) {
+            retval.reladdr2 = create_rel_src_register(relidx2);
+            retval.has_index2 = true;
+            retval.index2D = 10;
+         }
+      }
+   }
+   return retval;
+}
+
 st_dst_reg MockCodeline::create_dst_register(int dst_idx,int writemask)
 {
    gl_register_file file;
@@ -1937,6 +2095,32 @@ st_dst_reg MockCodeline::create_dst_register(int dst_idx, gl_register_file file)
    retval.writemask = 0xF;
    retval.type = GLSL_TYPE_INT;
 
+   return retval;
+}
+
+st_dst_reg MockCodeline::create_dst_register(const tuple<int,int,int>& dst)
+{
+   int dst_idx = std::get<0>(dst);
+   int relidx1 = std::get<1>(dst);
+   int relidx2 = std::get<2>(dst);
+
+   gl_register_file file = PROGRAM_TEMPORARY;
+   if (dst_idx < 0)
+      file = PROGRAM_OUTPUT;
+   else if (relidx1 || relidx2) {
+      file = PROGRAM_ARRAY;
+   }
+   st_dst_reg retval = create_dst_register(dst_idx, file);
+
+   if (relidx1 || relidx2) {
+      if (relidx1)
+         retval.reladdr = create_rel_src_register(relidx1);
+      if (relidx2) {
+         retval.reladdr2 = create_rel_src_register(relidx2);
+         retval.has_index2 = true;
+         retval.index2D = 10;
+      }
+   }
    return retval;
 }
 

@@ -191,7 +191,7 @@ private:
    /* Helper constants to make the tracking code more readable. */
    static const int write_is_conditional = -1;
    static const int conditionality_unresolved = 0;
-   static const int conditionality_untouched = numeric_limits<int>::max();
+   static const int conditionality_untouched;
 
    /* A bit field tracking the nexting levels of if-else clauses where the
     * temporary has (so far) been written to in the if branch, but not in the
@@ -211,6 +211,9 @@ private:
    /* Flag to resolve read-before-write in the else scope. */
    bool was_written_in_current_else_scope;
 };
+
+static const int
+temp_comp_access::conditionality_untouched = numeric_limits<int>::max();
 
 /* Class to track the access to all components of a temporary register. */
 class temp_access {

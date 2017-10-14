@@ -212,7 +212,7 @@ private:
    bool was_written_in_current_else_scope;
 };
 
-static const int
+const int
 temp_comp_access::conditionality_untouched = numeric_limits<int>::max();
 
 /* Class to track the access to all components of a temporary register. */

@@ -912,7 +912,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionInLoopAndCondition)
    const vector<MockCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
-      {     TGSI_OPCODE_IF, {0}, {in0}, {} },
+      {     TGSI_OPCODE_IF, {}, {in0}, {} },
       {       TGSI_OPCODE_ADD, {1}, {1,in0}, {}},
       {     TGSI_OPCODE_ENDIF},
       {     TGSI_OPCODE_MOV, {1}, {in1}, {}},
@@ -1468,8 +1468,8 @@ glsl_to_tgsi_instruction *MockCodeline::get_codeline() const
    next_instr->op = op;
    next_instr->info = tgsi_get_opcode_info(op);
 
-   assert(src.size() < 5);
-   assert(dst.size() < 3);
+   assert(src.size() == num_inst_src_regs(next_instr));
+   assert(dst.size() == num_inst_dst_regs(next_instr));
    assert(tex_offsets.size() < 3);
 
    copy(src.begin(), src.end(), next_instr->src);

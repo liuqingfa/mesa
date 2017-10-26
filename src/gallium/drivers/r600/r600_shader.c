@@ -1879,40 +1879,96 @@ static int tgsi_split_constant(struct r600_shader_ctx *ctx)
 {
 	struct tgsi_full_instruction *inst = &ctx->parse.FullToken.FullInstruction;
 	struct r600_bytecode_alu alu;
-	int i, j, k, nconst, r;
+	int i, j, nconst, r, n;
+	int cidx[4];
+	int ccount[4];
+	int reg_map[4];
 
 	for (i = 0, nconst = 0; i < inst->Instruction.NumSrcRegs; i++) {
 		if (inst->Src[i].Register.File == TGSI_FILE_CONSTANT) {
-			nconst++;
-		}
+			ccount[i] = 1;
+			cidx[nconst] = i;
+			++nconst;
+ 		}
+		reg_map[i] = i;
 		tgsi_src(ctx, &inst->Src[i], &ctx->src[i]);
 	}
-	for (i = 0, j = nconst - 1; i < inst->Instruction.NumSrcRegs; i++) {
-		if (inst->Src[i].Register.File != TGSI_FILE_CONSTANT) {
-			continue;
+
+	if (!nconst)
+		return 0;
+	
+	/* If nconst > 0 check whether two or all constants are actually from 
+	 * the same location, because then we can pre-load the constant only 
+	 * once (for rel constants), or even skip the pre-loading altogether.
+	 */
+	for (i = 0; i < nconst; ++i) {
+		int ii, k;
+		
+		/* Already visited and mapped. */
+		if (!ccount[i])
+ 			continue;
+		
+		ii = cidx[i];
+		for (k = i + 1; k < nconst; ++k) {
+			int kk = cidx[k];
+			if (ctx->src[ii].sel == ctx->src[kk].sel &&
+			    ctx->src[ii].rel == ctx->src[kk].rel &&
+			    ctx->src[ii].kc_bank == ctx->src[kk].kc_bank &&
+			    ctx->src[ii].kc_rel == ctx->src[kk].kc_rel) {
+				++ccount[ii];
+				--ccount[kk];
+				reg_map[kk] = ii;
+			}
 		}
+	}
 
-		if (ctx->src[i].rel) {
-			int chan = inst->Src[i].Indirect.Swizzle;
+	/* Count the number of distinct constants that might need pre-loading */
+	n = 0;
+	for (i = 0; i < nconst; ++i) {
+		if (ccount[i] > 0) {
+			cidx[n] = cidx[i];
+			++n;
+		}
+	}
+	nconst = n;
+	
+	/* Load constants and map all source registers to it */
+	for (i = 0, j = nconst - 1; i < nconst; ++i) {
+		int ii, k; 
+		ii = cidx[i];
+		
+		/* Relatively loaded constants always need pre-loading. */
+		if (ctx->src[ii].rel) {
+			int chan = inst->Src[ii].Indirect.Swizzle;
 			int treg = r600_get_temp(ctx);
-			if ((r = tgsi_fetch_rel_const(ctx, ctx->src[i].kc_bank, ctx->src[i].kc_rel, ctx->src[i].sel - 512, chan, treg)))
+			if ((r = tgsi_fetch_rel_const(ctx, ctx->src[ii].kc_bank,
+						      ctx->src[ii].kc_rel,
+						      ctx->src[ii].sel - 512, chan, treg)))
 				return r;
-
-			ctx->src[i].kc_bank = 0;
-			ctx->src[i].kc_rel = 0;
-			ctx->src[i].sel = treg;
-			ctx->src[i].rel = 0;
-			j--;
+			
+			ctx->src[ii].kc_bank = 0;
+			ctx->src[ii].kc_rel = 0;
+			ctx->src[ii].sel = treg;
+			ctx->src[ii].rel = 0;
+			for (k = 0; k < inst->Instruction.NumSrcRegs; ++k) {
+				if (reg_map[k] == ii) {
+					ctx->src[k].kc_bank = 0;
+					ctx->src[k].kc_rel = 0;
+					ctx->src[k].sel = treg;
+					ctx->src[k].rel = 0;
+				}
+			}
 		} else if (j > 0) {
+			int k; 
 			int treg = r600_get_temp(ctx);
 			for (k = 0; k < 4; k++) {
 				memset(&alu, 0, sizeof(struct r600_bytecode_alu));
 				alu.op = ALU_OP1_MOV;
-				alu.src[0].sel = ctx->src[i].sel;
+				alu.src[0].sel = ctx->src[ii].sel;
 				alu.src[0].chan = k;
-				alu.src[0].rel = ctx->src[i].rel;
-				alu.src[0].kc_bank = ctx->src[i].kc_bank;
-				alu.src[0].kc_rel = ctx->src[i].kc_rel;
+				alu.src[0].rel = ctx->src[ii].rel;
+				alu.src[0].kc_bank = ctx->src[ii].kc_bank;
+				alu.src[0].kc_rel = ctx->src[ii].kc_rel;
 				alu.dst.sel = treg;
 				alu.dst.chan = k;
 				alu.dst.write = 1;
@@ -1922,14 +1978,19 @@ static int tgsi_split_constant(struct r600_shader_ctx *ctx)
 				if (r)
 					return r;
 			}
-			ctx->src[i].sel = treg;
-			ctx->src[i].rel =0;
-			j--;
+			ctx->src[ii].sel = treg;
+			ctx->src[ii].rel =0;
+			for (k = 0; k < inst->Instruction.NumSrcRegs; ++k) {
+				if (reg_map[k] == ii) {
+					ctx->src[k].sel = treg;
+					ctx->src[k].rel = 0;
+				}
+			}
+			--j;
 		}
 	}
 	return 0;
 }
-
 /* need to move any immediate into a temp - for trig functions which use literal for PI stuff */
 static int tgsi_split_literal_constant(struct r600_shader_ctx *ctx)
 {

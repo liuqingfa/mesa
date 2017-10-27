@@ -375,7 +375,7 @@ static void r600_bytecode_src(struct r600_bytecode_alu_src *bc_src,
 			const struct r600_shader_src *shader_src,
 			unsigned chan);
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-			       unsigned dst_reg);
+			       unsigned dst_reg, unsigned mask);
 
 static int tgsi_last_instruction(unsigned writemask)
 {
@@ -1011,7 +1011,7 @@ static int tgsi_declaration(struct r600_shader_ctx *ctx)
 			if (r)
 				return r;
 
-			do_lds_fetch_values(ctx, temp_reg, dreg);
+			do_lds_fetch_values(ctx, temp_reg, dreg, 0xF);
 		}
 		else if (d->Semantic.Name == TGSI_SEMANTIC_TESSCOORD) {
 			/* MOV r1.x, r0.x;
@@ -1728,7 +1728,7 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 }
 
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-			       unsigned dst_reg)
+			       unsigned dst_reg, unsigned mask)
 {
 	struct r600_bytecode_alu alu;
 	int r, i;
@@ -1737,6 +1737,8 @@ static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
 		ctx->bc->force_add_cf = 1;
 	
 	for (i = 1; i < 4; i++) {
+		if (!(mask & 1 << i))
+			continue; 
 		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
 				   temp_reg, i,
 				   temp_reg, 0,
@@ -1745,6 +1747,8 @@ static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
 			return r;
 	}
 	for (i = 0; i < 4; i++) {
+		if (!(mask & 1 << i))
+			continue; 
 		/* emit an LDS_READ_RET */
 		memset(&alu, 0, sizeof(alu));
 		alu.op = LDS_OP1_LDS_READ_RET;
@@ -1760,6 +1764,8 @@ static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
 			return r;
 	}
 	for (i = 0; i < 4; i++) {
+		if (!(mask & 1 << i))
+			continue; 
 		/* then read from LDS_OQ_A_POP */
 		memset(&alu, 0, sizeof(alu));
 
@@ -1777,7 +1783,18 @@ static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
 	return 0;
 }
 
-static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src, unsigned int dst_reg)
+static int fetch_mask( struct tgsi_src_register *reg)
+{
+       int mask = 0;
+       mask |= 1 << reg->SwizzleX;
+       mask |= 1 << reg->SwizzleY;
+       mask |= 1 << reg->SwizzleZ;
+       mask |= 1 << reg->SwizzleW; 
+       return mask; 
+}
+
+static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
+			   unsigned int dst_reg, unsigned mask)
 {
 	int r;
 	unsigned temp_reg = r600_get_temp(ctx);
@@ -1793,13 +1810,14 @@ static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
 	if (r)
 		return r;
 	return 0;
 }
 
-static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src, unsigned int dst_reg)
+static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
+			   unsigned int dst_reg, unsigned mask)
 {
 	int r;
 	unsigned temp_reg = r600_get_temp(ctx);
@@ -1819,7 +1837,7 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
 	if (r)
 		return r;
 	return 0;
@@ -1841,7 +1859,7 @@ static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_re
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, 0xF);
 	if (r)
 		return r;
 	return 0;
@@ -1849,8 +1867,9 @@ static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_re
 
 struct  tess_input_cache_entry {
 	struct tgsi_full_src_register key;
-	unsigned reg;
-	unsigned initialized; 
+	unsigned reg: 16;
+	unsigned initialized: 1;
+	unsigned mask:4; 
 };  
 
 static struct tess_input_cache_entry tess_input_cache[32];
@@ -1916,6 +1935,7 @@ static void tess_input_cache_check(struct tgsi_full_src_register *src)
 			return; 
 		
 		if (tgsi_full_src_register_equal(src, &tess_input_cache[i].key)) {
+			tess_input_cache[i].mask |= fetch_mask(src); 
 			++tess_input_cache[i].reg;
 			return;
 		}
@@ -2005,43 +2025,33 @@ static int tgsi_split_lds_inputs(struct r600_shader_ctx *ctx)
 
 		if (ctx->type == PIPE_SHADER_TESS_EVAL && src->Register.File == TGSI_FILE_INPUT) {
 			int treg;
-#if 1
 			ce = tess_input_cache_load(src);
 			if (!ce) {
 				treg = r600_get_temp(ctx);
-				fetch_tes_input(ctx, src, treg);
+				fetch_tes_input(ctx, src, treg, fetch_mask(src));
 			} else {
 				if (!ce->initialized) {
-					fetch_tes_input(ctx, src, ce->reg);
+					fetch_tes_input(ctx, src, ce->reg, ce->mask);
 					ce->initialized = 1;
 				}
 				treg = ce->reg; 
 			}
-#else
-			treg = r600_get_temp(ctx);
-			fetch_tes_input(ctx, src, treg);
-#endif 			
 			ctx->src[i].sel = treg;
 			ctx->src[i].rel = 0;
 		}
 		if (ctx->type == PIPE_SHADER_TESS_CTRL && src->Register.File == TGSI_FILE_INPUT) {
 			int treg;
-#if 1
 			ce = tess_input_cache_load(src);
 			if (!ce) {
 				treg = r600_get_temp(ctx);
-				fetch_tcs_input(ctx, src, treg);
+				fetch_tcs_input(ctx, src, treg, fetch_mask(src));
 			} else {
 				if (!ce->initialized) {
-					fetch_tcs_input(ctx, src, ce->reg);
+					fetch_tcs_input(ctx, src, ce->reg, ce->mask);
 					ce->initialized = 1; 
 				}
 				treg = ce->reg; 
 			}
-#else
-			treg = r600_get_temp(ctx);
-			fetch_tcs_input(ctx, src, treg);
-#endif 			
 			ctx->src[i].sel = treg;
 			ctx->src[i].rel = 0;
 		}
@@ -3013,7 +3023,7 @@ static int r600_tess_factor_read(struct r600_shader_ctx *ctx,
 	if (r)
 		return r;
 
-	do_lds_fetch_values(ctx, temp_reg, dreg);
+	do_lds_fetch_values(ctx, temp_reg, dreg, 0xf);
 	return 0;
 }
 

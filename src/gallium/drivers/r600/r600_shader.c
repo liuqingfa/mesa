@@ -3722,8 +3722,8 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	 * (4 are reserved as alu clause temporary registers) */
 	if (ctx.bc->ngpr > 124) {
 		R600_ERR("GPR limit exceeded - shader requires %d registers\n", ctx.bc->ngpr);
-		r = -ENOMEM;
-		goto out_err;
+		/*r = -ENOMEM;
+		  goto out_err;*/
 	}
 
 	if (ctx.type == PIPE_SHADER_GEOMETRY) {
@@ -4867,15 +4867,48 @@ static int tgsi_rsq(struct r600_shader_ctx *ctx)
 		r600_bytecode_src(&alu.src[i], &ctx->src[i], 0);
 		r600_bytecode_src_set_abs(&alu.src[i]);
 	}
+	
 	alu.dst.sel = ctx->temp_reg;
+	alu.dst.chan = 0; 
 	alu.dst.write = 1;
 	alu.last = 1;
+	
 	r = r600_bytecode_add_alu(ctx->bc, &alu);
-	if (r)
+	
+	if (r) 
 		return r;
-	/* replicate result */
 	return tgsi_helper_tempx_replicate(ctx);
 }
+
+static int eg_rsq(struct r600_shader_ctx *ctx)
+{
+	struct tgsi_full_instruction *inst = &ctx->parse.FullToken.FullInstruction;
+	struct r600_bytecode_alu alu;
+	int i;
+	unsigned write_mask = inst->Dst[0].Register.WriteMask;
+	int last_bit = tgsi_last_instruction(write_mask);	
+
+	memset(&alu, 0, sizeof(struct r600_bytecode_alu));
+
+	/* XXX:
+	 * For state trackers other than OpenGL, we'll want to use
+	 * _RECIPSQRT_IEEE instead.
+	 */
+	alu.op = ALU_OP1_RECIPSQRT_CLAMPED;
+
+	for (i = 0; i < inst->Instruction.NumSrcRegs; i++) {
+		r600_bytecode_src(&alu.src[i], &ctx->src[i], 0);
+		r600_bytecode_src_set_abs(&alu.src[i]);
+	}
+
+	tgsi_dst(ctx, &inst->Dst[0], last_bit, &alu.dst);
+	alu.dst.chan = last_bit; 
+	alu.dst.write = 1;
+	alu.last = 1;
+	
+	return r600_bytecode_add_alu(ctx->bc, &alu);
+}
+
 
 static int tgsi_helper_tempx_replicate(struct r600_shader_ctx *ctx)
 {
@@ -4883,14 +4916,19 @@ static int tgsi_helper_tempx_replicate(struct r600_shader_ctx *ctx)
 	struct r600_bytecode_alu alu;
 	int i, r;
 
-	for (i = 0; i < 4; i++) {
+	unsigned write_mask = inst->Dst[0].Register.WriteMask;
+	int last_bit = tgsi_last_instruction(write_mask);
+
+	for (i = 0; i <= last_bit; i++) {
+		if (!(write_mask & (1 << i)))
+			continue;
+
 		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
 		alu.src[0].sel = ctx->temp_reg;
 		alu.op = ALU_OP1_MOV;
-		alu.dst.chan = i;
 		tgsi_dst(ctx, &inst->Dst[0], i, &alu.dst);
-		alu.dst.write = (inst->Dst[0].Register.WriteMask >> i) & 1;
-		if (i == 3)
+		alu.dst.write = 1;
+		if (i == last_bit)
 			alu.last = 1;
 		r = r600_bytecode_add_alu(ctx->bc, &alu);
 		if (r)
@@ -9075,7 +9113,7 @@ static const struct r600_shader_tgsi_instruction eg_shader_tgsi_instruction[] = 
 	[TGSI_OPCODE_MOV]	= { ALU_OP1_MOV, tgsi_op2},
 	[TGSI_OPCODE_LIT]	= { ALU_OP0_NOP, tgsi_lit},
 	[TGSI_OPCODE_RCP]	= { ALU_OP1_RECIP_IEEE, tgsi_trans_srcx_replicate},
-	[TGSI_OPCODE_RSQ]	= { ALU_OP1_RECIPSQRT_IEEE, tgsi_rsq},
+	[TGSI_OPCODE_RSQ]	= { ALU_OP1_RECIPSQRT_IEEE, eg_rsq},
 	[TGSI_OPCODE_EXP]	= { ALU_OP0_NOP, tgsi_exp},
 	[TGSI_OPCODE_LOG]	= { ALU_OP0_NOP, tgsi_log},
 	[TGSI_OPCODE_MUL]	= { ALU_OP2_MUL_IEEE, tgsi_op2},

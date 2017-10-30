@@ -1843,7 +1843,8 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 	return 0;
 }
 
-static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src, unsigned int dst_reg)
+static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src, unsigned int dst_reg,
+	unsigned mask)
 {
 	int r;
 	unsigned temp_reg = r600_get_temp(ctx);
@@ -1859,7 +1860,7 @@ static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_re
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, 0xF);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
 	if (r)
 		return r;
 	return 0;
@@ -2059,8 +2060,18 @@ static int tgsi_split_lds_inputs(struct r600_shader_ctx *ctx)
 			ctx->src[i].rel = 0;
 		}
 		if (ctx->type == PIPE_SHADER_TESS_CTRL && src->Register.File == TGSI_FILE_OUTPUT) {
-			int treg = r600_get_temp(ctx);
-			fetch_tcs_output(ctx, src, treg);
+			int treg;
+			ce = tess_input_cache_load(src);
+			if (!ce) {
+				treg = r600_get_temp(ctx);
+				fetch_tcs_output(ctx, src, treg, ce->mask);
+			} else {
+				if (!ce->initialized) {
+					fetch_tcs_output(ctx, src, ce->reg, ce->mask);
+					ce->initialized = 1; 
+				}
+				treg = ce->reg; 
+			}	
 			ctx->src[i].sel = treg;
 			ctx->src[i].rel = 0;
 		}

@@ -1875,6 +1875,8 @@ struct  tess_input_cache_entry {
 static struct tess_input_cache_entry tess_input_cache[32];
 static tess_input_cache_fill = 0;
 
+char cw[] = "xyzw"; 
+
 static void print_reginfo (struct tgsi_full_src_register *src)
 {
 	fprintf(stderr, "IN");
@@ -1884,7 +1886,8 @@ static void print_reginfo (struct tgsi_full_src_register *src)
 		fprintf(stderr, "[%d]", src->Dimension.Index);
 	if (src->Dimension.Indirect)
 		fprintf(stderr, "{(%d)[%d.%xd} ", src->DimIndirect.ArrayID, src->DimIndirect.Index, src->DimIndirect.Swizzle);
-	fprintf(stderr, "[%d]", src->Register.Index); 
+	fprintf(stderr, "[%d].%c%c%c%c", src->Register.Index, cw[src->Register.SwizzleX],
+		cw[src->Register.SwizzleY], cw[src->Register.SwizzleZ], cw[src->Register.SwizzleW]); 
 }
 static int tgsi_full_src_register_equal(struct tgsi_full_src_register *lhs,
 					struct tgsi_full_src_register *rhs)
@@ -1892,14 +1895,7 @@ static int tgsi_full_src_register_equal(struct tgsi_full_src_register *lhs,
 	if (lhs->Register.Index != rhs->Register.Index)
 		return 0;
 
-	if (lhs->Register.Indirect &&
-	    (!rhs->Register.Indirect ||
-	     (rhs->Indirect.Swizzle != lhs->Indirect.Swizzle) ||
-	     (rhs->Indirect.Index != lhs->Indirect.Index) ||
-	     (rhs->Indirect.ArrayID == lhs->Indirect.ArrayID) ||
-	     (rhs->Indirect.File == lhs->Indirect.File)))
-		return 0;
-	else if (rhs->Register.Indirect)
+	if (lhs->Register.Indirect || rhs->Register.Indirect)
 		return 0; 
 
 	if (lhs->Register.Dimension)  {
@@ -1908,14 +1904,7 @@ static int tgsi_full_src_register_equal(struct tgsi_full_src_register *lhs,
 		    (rhs->Dimension.Dimension != lhs->Dimension.Dimension))
 			return 0;
 		
-		if (lhs->Dimension.Indirect &&
-		    (!lhs->Dimension.Indirect ||
-		     (rhs->DimIndirect.Swizzle != lhs->DimIndirect.Swizzle) ||
-		     (rhs->DimIndirect.Index != lhs->DimIndirect.Index) ||
-		     (rhs->DimIndirect.ArrayID != lhs->DimIndirect.ArrayID) ||
-		     (rhs->DimIndirect.File != lhs->DimIndirect.File)))
-				return 0;
-		else if (rhs->Dimension.Indirect)
+		if (lhs->Dimension.Indirect || rhs->Dimension.Indirect)
 			return 0;
 	} else if (rhs->Register.Dimension)
 		return 0; 
@@ -1950,8 +1939,8 @@ static int tess_input_cache_count_multiused(unsigned reg_base)
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		if (tess_input_cache[i].reg > 0) {
 			if (i != r) {
-				memcpy(&tess_input_cache[r].key, &tess_input_cache[i].key,
-				       sizeof(struct tgsi_full_src_register));
+				memcpy(&tess_input_cache[r], &tess_input_cache[i],
+				       sizeof(struct tess_input_cache_entry));
 			}
 
 			tess_input_cache[r].reg = reg_base + r;
@@ -1986,7 +1975,6 @@ static struct  tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_sr
 	int i; 
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
-			
 		if (tgsi_full_src_register_equal(src, &ce->key)) {
 			retval = ce;
 			break; 
@@ -2021,9 +2009,14 @@ static void preload_tes_lds(struct r600_shader_ctx *ctx)
 	int i;
 	ctx->max_driver_temp_used = 0;
 	r600_get_temp(ctx);
-
+	
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
+
+		fprintf(stderr, "Preload tes slot %d with reg %d for ", i, ce->reg);
+		print_reginfo(&ce->key);
+		fprintf(stderr," (%x)\n", ce->mask); 
+
 		fetch_tes_input(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1; 
 	}
@@ -2036,6 +2029,9 @@ static void preload_tcs_lds(struct r600_shader_ctx *ctx)
 	r600_get_temp(ctx);
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
+		fprintf(stderr, "Preload tcs slot %d with reg %d for ", i, ce->reg);
+		print_reginfo(&ce->key);
+		fprintf(stderr,"\n"); 
 		fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1; 
 	}
@@ -2143,7 +2139,7 @@ static int tgsi_split_constant(struct r600_shader_ctx *ctx)
 	/* Count the number of distinct constants that might need pre-loading */
 	n = 0;
 	for (i = 0; i < nconst; ++i) {
-		if (ccount[i] > 0) {
+		if (ccount[cidx[i]] > 0) {
 			cidx[n] = cidx[i];
 			++n;
 		}
@@ -3572,7 +3568,6 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	else if (ctx.type == PIPE_SHADER_TESS_CTRL)
 		preload_tcs_lds(&ctx);
 
-	
 	tgsi_parse_init(&ctx.parse, tokens);
 	while (!tgsi_parse_end_of_tokens(&ctx.parse)) {
 		tgsi_parse_token(&ctx.parse);

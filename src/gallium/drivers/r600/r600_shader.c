@@ -1880,7 +1880,7 @@ char cw[] = "xyzw";
 
 static void print_reginfo (struct tgsi_full_src_register *src)
 {
-	fprintf(stderr, "IN");
+	fprintf(stderr, src->Register.File == TGSI_FILE_INPUT ? "IN" : "OUT");
 	if (src->Register.Indirect)
 		fprintf(stderr, "[(%d)[%d.%d]] ", src->Indirect.ArrayID, src->Indirect.Index, src->Indirect.Swizzle);
 	if (src->Register.Dimension)
@@ -1916,7 +1916,7 @@ static int tgsi_full_src_register_equal(struct tgsi_full_src_register *lhs,
 }
 
 
-static void tess_input_cache_store(struct tgsi_full_src_register *src, unsigned reg);
+static void tess_input_cache_store(struct tgsi_full_src_register *src);
 
 static void tess_input_cache_check(struct tgsi_full_src_register *src)
 {
@@ -1927,12 +1927,17 @@ static void tess_input_cache_check(struct tgsi_full_src_register *src)
 			return; 
 		
 		if (tgsi_full_src_register_equal(src, &tess_input_cache[i].key)) {
-			tess_input_cache[i].mask |= fetch_mask(&src->Register); 
+			tess_input_cache[i].mask |= fetch_mask(&src->Register);
 			++tess_input_cache[i].reg;
+
+			fprintf(stderr, "Multi-Access: ");  
+			print_reginfo (&tess_input_cache[i].key);
+			fprintf(stderr, " mask: %d, count reg:%d\n", tess_input_cache[i].mask, tess_input_cache[i].reg + 1);
+
 			return;
 		}
 	}
-	tess_input_cache_store(src, 0);
+	tess_input_cache_store(src);
 }
 
 static int tess_input_cache_count_multiused(unsigned reg_base)
@@ -1946,6 +1951,11 @@ static int tess_input_cache_count_multiused(unsigned reg_base)
 				       sizeof(struct tess_input_cache_entry));
 			tess_input_cache[r].reg = reg_base + r;
 			tess_input_cache[r].initialized = 0;
+			
+			fprintf(stderr, "Multi-Access: ");  
+			print_reginfo (&tess_input_cache[r].key);
+			fprintf(stderr, " mask: %d, reserve reg:%d\n", tess_input_cache[r].mask, tess_input_cache[r].reg);
+			
 			++r;
 		}
 	}
@@ -1955,16 +1965,20 @@ static int tess_input_cache_count_multiused(unsigned reg_base)
 }
 
 
-static void tess_input_cache_store(struct tgsi_full_src_register *src, unsigned reg)
+static void tess_input_cache_store(struct tgsi_full_src_register *src)
 {
 	if (tess_input_cache_fill < 32) {
 		memcpy(&tess_input_cache[tess_input_cache_fill].key, src, sizeof(struct tgsi_full_src_register));
-		tess_input_cache[tess_input_cache_fill++].reg = reg;
+		tess_input_cache[tess_input_cache_fill].mask = fetch_mask(&src->Register); 
+		tess_input_cache[tess_input_cache_fill++].reg = 0;
 	}
 }
 
 static struct  tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_src_register *src)
 {
+	fprintf(stderr, "Try load for ");  
+	print_reginfo (src); 
+
 	struct  tess_input_cache_entry *retval = NULL; 
 	int i; 
 	for (i = 0; i < tess_input_cache_fill; ++i) {
@@ -1973,6 +1987,11 @@ static struct  tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_sr
 			retval = ce;
 			break; 
 		}
+	}
+	if (retval) {
+		fprintf(stderr, ", got register %d with mask %x\n", retval->reg, retval->mask); 
+	}else{
+		fprintf(stderr, ", not available\n"); 
 	}
 	return retval; 
 }
@@ -2014,7 +2033,10 @@ static void preload_tcs_lds(struct r600_shader_ctx *ctx)
 	r600_get_temp(ctx);
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
-		fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
+		if (ce->key.Register.File == TGSI_FILE_INPUT) 
+			fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
+		else
+			fetch_tcs_output(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1; 
 	}
 }

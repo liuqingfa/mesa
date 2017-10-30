@@ -1938,17 +1938,11 @@ static int tess_input_cache_count_multiused(unsigned reg_base)
 	int r = 0;
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		if (tess_input_cache[i].reg > 0) {
-			if (i != r) {
+			if (i != r)
 				memcpy(&tess_input_cache[r], &tess_input_cache[i],
 				       sizeof(struct tess_input_cache_entry));
-			}
-
 			tess_input_cache[r].reg = reg_base + r;
 			tess_input_cache[r].initialized = 0;
-			
-			fprintf(stderr, "Reserve slot %d with reg %d for ", r, tess_input_cache[r].reg);
-			print_reginfo(&tess_input_cache[r].key);
-			fprintf(stderr,"\n"); 
 			++r;
 		}
 	}
@@ -1968,9 +1962,6 @@ static void tess_input_cache_store(struct tgsi_full_src_register *src, unsigned 
 
 static struct  tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_src_register *src)
 {
-	fprintf(stderr, "Load from cache for "); 
-	print_reginfo(src);
-	
 	struct  tess_input_cache_entry *retval = NULL; 
 	int i; 
 	for (i = 0; i < tess_input_cache_fill; ++i) {
@@ -1980,10 +1971,6 @@ static struct  tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_sr
 			break; 
 		}
 	}
-	if (retval) 
-		fprintf(stderr, "  -> %d (initialized:%d)\n", retval->reg, retval->initialized);
-	else
-		fprintf(stderr, "  not cached\n");
 	return retval; 
 }
 
@@ -2012,11 +1999,6 @@ static void preload_tes_lds(struct r600_shader_ctx *ctx)
 	
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
-
-		fprintf(stderr, "Preload tes slot %d with reg %d for ", i, ce->reg);
-		print_reginfo(&ce->key);
-		fprintf(stderr," (%x)\n", ce->mask); 
-
 		fetch_tes_input(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1; 
 	}
@@ -2029,9 +2011,6 @@ static void preload_tcs_lds(struct r600_shader_ctx *ctx)
 	r600_get_temp(ctx);
 	for (i = 0; i < tess_input_cache_fill; ++i) {
 		struct tess_input_cache_entry *ce = &tess_input_cache[i];
-		fprintf(stderr, "Preload tcs slot %d with reg %d for ", i, ce->reg);
-		print_reginfo(&ce->key);
-		fprintf(stderr,"\n"); 
 		fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1; 
 	}
@@ -3210,7 +3189,6 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	bool lds_inputs = false;
 	bool pos_emitted = false;
 
-	fprintf(stderr, "Start from TGSI\n");
 	tess_input_cache_fill = 0;
 	
 	ctx.bc = &shader->bc;

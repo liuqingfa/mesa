@@ -2064,7 +2064,7 @@ static int tgsi_split_lds_inputs(struct r600_shader_ctx *ctx)
 			ce = tess_input_cache_load(src);
 			if (!ce) {
 				treg = r600_get_temp(ctx);
-				fetch_tcs_output(ctx, src, treg, ce->mask);
+				fetch_tcs_output(ctx, src, treg, fetch_mask(&src->Register));
 			} else {
 				if (!ce->initialized) {
 					fetch_tcs_output(ctx, src, ce->reg, ce->mask);

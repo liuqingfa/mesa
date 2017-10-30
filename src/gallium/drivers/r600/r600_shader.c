@@ -1843,8 +1843,8 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 	return 0;
 }
 
-static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src, unsigned int dst_reg,
-	unsigned mask)
+static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
+			    unsigned int dst_reg, unsigned mask)
 {
 	int r;
 	unsigned temp_reg = r600_get_temp(ctx);
@@ -1895,6 +1895,8 @@ static int tgsi_full_src_register_equal(struct tgsi_full_src_register *lhs,
 {
 	if (lhs->Register.Index != rhs->Register.Index)
 		return 0;
+
+	if (lhs->Register.File != rhs->Register.File)
 
 	if (lhs->Register.Indirect || rhs->Register.Indirect)
 		return 0; 

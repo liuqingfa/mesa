@@ -2937,8 +2937,8 @@ static int emit_lds_vs_writes(struct r600_shader_ctx *ctx)
 
 		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
 				   temp_reg, 2,
-				   temp_reg, param ? 1 : 0,
-				   V_SQ_ALU_SRC_LITERAL, 8);
+				   temp_reg, 0,
+				   V_SQ_ALU_SRC_LITERAL, 8 + param * 16);
 		if (r)
 			return r;
 
@@ -2990,14 +2990,24 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 
 	/* LDS write */
 	lasti = tgsi_last_instruction(write_mask);
-	for (i = 1; i <= lasti; i++) {
+	for (i = (param > 0 ? 0: 1); i <= lasti; i++) {
 
 		if (!(write_mask & (1 << i)))
 			continue;
-		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-				   temp_reg, i,
-				   temp_reg, 0,
-				   V_SQ_ALU_SRC_LITERAL, 4 * i + 16 * param);
+		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
+		alu.dst.sel = temp_reg;
+		alu.dst.chan = i;
+		alu.dst.write = 1;
+		alu.op = ALU_OP2_ADD_INT;
+		alu.src[0].sel = temp_reg;
+		alu.src[0].chan = 0;
+		alu.src[1].sel = V_SQ_ALU_SRC_LITERAL;
+		alu.src[1].value = 4 * i + 16 * param; 
+		
+		if (i == lasti)
+			alu.last = 1;
+
+		r = r600_bytecode_add_alu(ctx->bc, &alu);
 		if (r)
 			return r;
 	}

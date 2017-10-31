@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <errno.h>
 
+#define MESA_UNUSED(X) (void)X
 /* CAYMAN notes
 Why CAYMAN got loops for lots of instructions is explained here.
 
@@ -850,7 +851,8 @@ static int tgsi_barrier(struct r600_shader_ctx *ctx)
 static int tgsi_declaration(struct r600_shader_ctx *ctx)
 {
 	struct tgsi_full_declaration *d = &ctx->parse.FullToken.FullDeclaration;
-	int r, i, j, count = d->Range.Last - d->Range.First + 1;
+	int r, j, count = d->Range.Last - d->Range.First + 1;
+	unsigned i; 
 
 	switch (d->Declaration.File) {
 	case TGSI_FILE_INPUT:
@@ -1080,8 +1082,9 @@ static int allocate_system_value_inputs(struct r600_shader_ctx *ctx, int gpr_off
 
 		{ false, &ctx->fixed_pt_position_gpr, TGSI_SEMANTIC_SAMPLEID, TGSI_SEMANTIC_SAMPLEPOS } /* SAMPLEID is in Fixed Point Position GPR.w */
 	};
-	int i, k, num_regs = 0;
-
+	int num_regs = 0;
+	unsigned k,i; 
+	
 	if (tgsi_parse_init(&parse, ctx->tokens) != TGSI_PARSE_OK) {
 		return 0;
 	}
@@ -2275,8 +2278,11 @@ static int emit_streamout(struct r600_shader_ctx *ctx, struct pipe_stream_output
 {
 	unsigned so_gpr[PIPE_MAX_SHADER_OUTPUTS];
 	unsigned start_comp[PIPE_MAX_SHADER_OUTPUTS];
-	int i, j, r;
-
+	int j, r;
+	unsigned i; 
+	
+	MESA_UNUSED(stream_item_size);
+	
 	/* Sanity checking. */
 	if (so->num_outputs > PIPE_MAX_SO_OUTPUTS) {
 		R600_ERR("Too many stream outputs: %d\n", so->num_outputs);
@@ -2427,13 +2433,14 @@ static int generate_gs_copy_shader(struct r600_context *rctx,
 	struct r600_shader_ctx ctx = {};
 	struct r600_shader *gs_shader = &gs->shader;
 	struct r600_pipe_shader *cshader;
-	int ocnt = gs_shader->noutput;
+	unsigned ocnt = gs_shader->noutput;
 	struct r600_bytecode_alu alu;
 	struct r600_bytecode_vtx vtx;
 	struct r600_bytecode_output output;
 	struct r600_bytecode_cf *cf_jump, *cf_pop,
 		*last_exp_pos = NULL, *last_exp_param = NULL;
-	int i, j, next_clip_pos = 61, next_param = 0;
+	int next_clip_pos = 61, next_param = 0;
+	unsigned i, j; 
 	int ring;
 	bool only_ring_0 = true;
 	cshader = calloc(1, sizeof(struct r600_pipe_shader));
@@ -2752,9 +2759,12 @@ static int emit_inc_ring_offset(struct r600_shader_ctx *ctx, int idx, bool ind)
 static int emit_gs_ring_writes(struct r600_shader_ctx *ctx, const struct pipe_stream_output_info *so, int stream, bool ind)
 {
 	struct r600_bytecode_output output;
-	int i, k, ring_offset;
+	int ring_offset;
 	int effective_stream = stream == -1 ? 0 : stream;
 	int idx = 0;
+	unsigned i, k;
+
+	MESA_UNUSED(so);
 
 	for (i = 0; i < ctx->shader->noutput; i++) {
 		if (ctx->gs_for_vs) {
@@ -2893,7 +2903,8 @@ static int r600_fetch_tess_io_info(struct r600_shader_ctx *ctx)
 
 static int emit_lds_vs_writes(struct r600_shader_ctx *ctx)
 {
-	int i, j, r;
+	int j, r;
+	unsigned i; 
 	int temp_reg;
 
 	/* fetch tcs input values into input_vals */
@@ -3067,8 +3078,8 @@ static int r600_tess_factor_read(struct r600_shader_ctx *ctx,
 
 static int r600_emit_tess_factor(struct r600_shader_ctx *ctx)
 {
-	unsigned i;
-	int stride, outer_comps, inner_comps;
+	unsigned i, outer_comps, inner_comps;
+	int stride;
 	int tessinner_idx = -1, tessouter_idx = -1;
 	int r;
 	int temp_reg = r600_get_temp(ctx);
@@ -3213,7 +3224,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	struct tgsi_full_immediate *immediate;
 	struct r600_shader_ctx ctx;
 	struct r600_bytecode_output output[ARRAY_SIZE(shader->output)];
-	unsigned output_done, noutput;
+	int output_done, noutput;
 	unsigned opcode;
 	int i, j, k, r = 0;
 	int next_param_base = 0, next_clip_base;
@@ -3883,7 +3894,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 				goto out_err;
 			}
 
-			if (output[j].type==-1) {
+			if ((int)output[j].type==-1) {
 				output[j].type = V_SQ_CF_ALLOC_EXPORT_WORD0_SQ_EXPORT_PARAM;
 				output[j].array_base = next_param_base++;
 			}
@@ -4004,6 +4015,7 @@ static int tgsi_unsupported(struct r600_shader_ctx *ctx)
 
 static int tgsi_end(struct r600_shader_ctx *ctx)
 {
+	MESA_UNUSED(ctx); 
 	return 0;
 }
 
@@ -7889,7 +7901,7 @@ static int tgsi_lrp(struct r600_shader_ctx *ctx)
 {
 	struct tgsi_full_instruction *inst = &ctx->parse.FullToken.FullInstruction;
 	struct r600_bytecode_alu alu;
-	int lasti = tgsi_last_instruction(inst->Dst[0].Register.WriteMask);
+	unsigned lasti = tgsi_last_instruction(inst->Dst[0].Register.WriteMask);
 	unsigned i, temp_regs[2];
 	int r;
 
@@ -8664,7 +8676,8 @@ static inline void callstack_update_max_depth(struct r600_shader_ctx *ctx,
                                               unsigned reason)
 {
 	struct r600_stack_info *stack = &ctx->bc->stack;
-	unsigned elements, entries;
+	unsigned elements;
+	int entries;
 
 	unsigned entry_size = stack->entry_size;
 
@@ -8919,7 +8932,7 @@ static int tgsi_bgnloop(struct r600_shader_ctx *ctx)
 
 static int tgsi_endloop(struct r600_shader_ctx *ctx)
 {
-	unsigned i;
+	int i;
 
 	r600_bytecode_add_cfinst(ctx->bc, CF_OP_LOOP_END);
 

@@ -1877,7 +1877,7 @@ struct  tess_input_cache_entry {
 };  
 
 static struct tess_input_cache_entry tess_input_cache[32];
-static tess_input_cache_fill = 0;
+static int tess_input_cache_fill = 0;
 
 char cw[] = "xyzw"; 
 

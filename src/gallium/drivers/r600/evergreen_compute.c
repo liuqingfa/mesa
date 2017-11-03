@@ -799,13 +799,21 @@ static void compute_emit_cs(struct r600_context *rctx,
 	/* Emit dispatch state and dispatch packet */
 	evergreen_emit_dispatch(rctx, info);
 
+	radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
+	radeon_emit(cs, EVENT_TYPE(0x6));
+	radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
+	radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_PS_PARTIAL_FLUSH) | EVENT_INDEX(4));
+	radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
+	radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 	if (rctx->cs_shader_state.shader->ir_type == PIPE_SHADER_IR_TGSI)
 		evergreen_emit_atomic_buffer_save(rctx, true, combined_atomics, &atomic_used_mask);
 	/* XXX evergreen_flush_emit() hardcodes the CP_COHER_SIZE to 0xffffffff
 	 */
 	rctx->b.flags |= R600_CONTEXT_INV_CONST_CACHE |
 		      R600_CONTEXT_INV_VERTEX_CACHE |
-	              R600_CONTEXT_INV_TEX_CACHE;
+	              R600_CONTEXT_INV_TEX_CACHE |
+		      R600_CONTEXT_PS_PARTIAL_FLUSH |
+		      R600_CONTEXT_FLUSH_AND_INV_CB;
 	r600_flush_emit(rctx);
 	rctx->b.flags = 0;
 

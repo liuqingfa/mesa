@@ -39,7 +39,7 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define MESA_UNUSED(X) (void)X
+#define MESA_UNUSED(X) (void)(X)
 /* CAYMAN notes
 Why CAYMAN got loops for lots of instructions is explained here.
 
@@ -329,8 +329,6 @@ struct r600_tess_input_cache {
 	int fill;
 };
 
-static struct r600_tess_input_cache tess_input_cache;
-
 struct r600_shader_ctx {
 	struct tgsi_shader_info			info;
 	struct tgsi_parse_context		parse;
@@ -366,6 +364,7 @@ struct r600_shader_ctx {
 	unsigned				enabled_stream_buffers_mask;
 	unsigned                                tess_input_info; /* temp with tess input offsets */
 	unsigned                                tess_output_info; /* temp with tess input offsets */
+	struct r600_tess_input_cache tess_input_cache;
 };
 
 struct r600_shader_tgsi_instruction {
@@ -1921,73 +1920,80 @@ static int tgsi_full_src_register_equal_for_cache(struct tgsi_full_src_register 
 }
 
 
-static void tess_input_cache_store(struct tgsi_full_src_register *src);
+static void tess_input_cache_store(struct r600_tess_input_cache *cache,
+											  struct tgsi_full_src_register *src);
 
-static void tess_input_cache_check(struct tgsi_full_src_register *src)
+static void tess_input_cache_check(struct r600_tess_input_cache *cache,
+											  struct tgsi_full_src_register *src)
 {
 	int i;
-	for (i = 0; i < tess_input_cache.fill; ++i) {
+	for (i = 0; i < cache->fill; ++i) {
 		/* indirect loads can come from anywhere, no use caching them */
 		if (src->Register.Indirect || src->Dimension.Indirect)
 			return;
 
-		if (tgsi_full_src_register_equal_for_cache(src, &tess_input_cache.data[i].key)) {
-			tess_input_cache.data[i].mask |= fetch_mask(&src->Register);
-			++tess_input_cache.data[i].reg;
+		if (tgsi_full_src_register_equal_for_cache(src, &cache->data[i].key)) {
+			cache->data[i].mask |= fetch_mask(&src->Register);
+			++cache->data[i].reg;
 
 			fprintf(stderr, "Multi-Access: ");
-			print_reginfo (&tess_input_cache.data[i].key);
-			fprintf(stderr, " mask: %d, count reg:%d\n", tess_input_cache.data[i].mask, tess_input_cache.data[i].reg + 1);
+			print_reginfo (&cache->data[i].key);
+			fprintf(stderr, " mask: %d, count reg:%d\n",
+					  cache->data[i].mask, cache->data[i].reg + 1);
 
 			return;
 		}
 	}
-	tess_input_cache_store(src);
+	tess_input_cache_store(cache, src);
 }
 
-static int tess_input_cache_count_multiused(unsigned reg_base)
+static int tess_input_cache_count_multiused(struct r600_tess_input_cache *cache,
+														  unsigned reg_base)
 {
 	int i;
 	int r = 0;
-	for (i = 0; i < tess_input_cache.fill; ++i) {
-		if (tess_input_cache.data[i].reg > 0) {
+	for (i = 0; i < cache->fill; ++i) {
+		if (cache->data[i].reg > 0) {
 			if (i != r)
-				memcpy(&tess_input_cache.data[r], &tess_input_cache.data[i],
+				memcpy(&cache->data[r], &cache->data[i],
 						 sizeof(struct r600_tess_input_cache_entry));
-			tess_input_cache.data[r].reg = reg_base + r;
-			tess_input_cache.data[r].initialized = 0;
+			cache->data[r].reg = reg_base + r;
+			cache->data[r].initialized = 0;
 
 			fprintf(stderr, "Multi-Access: ");
-			print_reginfo (&tess_input_cache.data[r].key);
-			fprintf(stderr, " mask: %d, reserve reg:%d\n", tess_input_cache.data[r].mask, tess_input_cache.data[r].reg);
+			print_reginfo (&cache->data[r].key);
+			fprintf(stderr, " mask: %d, reserve reg:%d\n", cache->data[r].mask, cache->data[r].reg);
 
 			++r;
 		}
 	}
-	tess_input_cache.fill = r;
+	cache->fill = r;
 	fprintf(stderr, "Shader has %d LDS values that are loaded more then once\n", r);
 	return r;
 }
 
 
-static void tess_input_cache_store(struct tgsi_full_src_register *src)
+static void tess_input_cache_store(struct r600_tess_input_cache *cache,
+											  struct tgsi_full_src_register *src)
 {
-	if (tess_input_cache.fill < 32) {
-		memcpy(&tess_input_cache.data[tess_input_cache.fill].key, src, sizeof(struct tgsi_full_src_register));
-		tess_input_cache.data[tess_input_cache.fill].mask = fetch_mask(&src->Register);
-		tess_input_cache.data[tess_input_cache.fill++].reg = 0;
+	if (cache->fill < 32) {
+		memcpy(&cache->data[cache->fill].key, src, sizeof(struct tgsi_full_src_register));
+		cache->data[cache->fill].mask = fetch_mask(&src->Register);
+		cache->data[cache->fill++].reg = 0;
 	}
 }
 
-static struct  r600_tess_input_cache_entry *tess_input_cache_load(struct tgsi_full_src_register *src)
+static struct  r600_tess_input_cache_entry *
+		tess_input_cache_load(struct r600_tess_input_cache *cache,
+									 struct tgsi_full_src_register *src)
 {
 	fprintf(stderr, "Try load for ");
 	print_reginfo (src);
 
 	struct  r600_tess_input_cache_entry *retval = NULL;
 	int i;
-	for (i = 0; i < tess_input_cache.fill; ++i) {
-		struct r600_tess_input_cache_entry *ce = &tess_input_cache.data[i];
+	for (i = 0; i < cache->fill; ++i) {
+		struct r600_tess_input_cache_entry *ce = &cache->data[i];
 		if (tgsi_full_src_register_equal_for_cache(src, &ce->key)) {
 			retval = ce;
 			break;
@@ -2011,13 +2017,13 @@ static int r600_load_tess_data(struct r600_shader_ctx *ctx,
 {
 	int treg;
 	struct r600_tess_input_cache_entry *ce;
-	ce = tess_input_cache_load(src);
+	ce = tess_input_cache_load(&ctx->tess_input_cache, src);
 	if (!ce) {
 		treg = r600_get_temp(ctx);
 		fetch_call(ctx, src, treg, fetch_mask(&src->Register));
 	} else {
 		if (!ce->initialized) {
-			fetch_tes_input(ctx, src, ce->reg, ce->mask);
+			fetch_call(ctx, src, ce->reg, ce->mask);
 			ce->initialized = 1;
 		}
 		treg = ce->reg;
@@ -2036,7 +2042,7 @@ static void count_tess_inputs(struct r600_shader_ctx *ctx)
 		if (((src->Register.File == TGSI_FILE_INPUT) && (ctx->type == PIPE_SHADER_TESS_EVAL)) ||
 			 (ctx->type == PIPE_SHADER_TESS_CTRL &&
 			  (src->Register.File == TGSI_FILE_INPUT || src->Register.File == TGSI_FILE_OUTPUT)))
-			tess_input_cache_check(src);
+			tess_input_cache_check(&ctx->tess_input_cache, src);
 	}
 }
 
@@ -2046,8 +2052,8 @@ static void preload_tes_lds(struct r600_shader_ctx *ctx)
 	ctx->max_driver_temp_used = 0;
 	r600_get_temp(ctx);
 
-	for (i = 0; i < tess_input_cache.fill; ++i) {
-		struct r600_tess_input_cache_entry *ce = &tess_input_cache.data[i];
+	for (i = 0; i < ctx->tess_input_cache.fill; ++i) {
+		struct r600_tess_input_cache_entry *ce = &ctx->tess_input_cache.data[i];
 		fetch_tes_input(ctx, &ce->key, ce->reg, ce->mask);
 		ce->initialized = 1;
 	}
@@ -2058,8 +2064,8 @@ static void preload_tcs_lds(struct r600_shader_ctx *ctx)
 	int i;
 	ctx->max_driver_temp_used = 0;
 	r600_get_temp(ctx);
-	for (i = 0; i < tess_input_cache.fill; ++i) {
-		struct r600_tess_input_cache_entry *ce = &tess_input_cache.data[i];
+	for (i = 0; i < ctx->tess_input_cache.fill; ++i) {
+		struct r600_tess_input_cache_entry *ce = &ctx->tess_input_cache.data[i];
 		if (ce->key.Register.File == TGSI_FILE_INPUT)
 			fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
 		else
@@ -3226,7 +3232,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	bool lds_inputs = false;
 	bool pos_emitted = false;
 
-	tess_input_cache.fill = 0;
+	ctx.tess_input_cache.fill = 0;
 
 	ctx.bc = &shader->bc;
 	ctx.shader = shader;
@@ -3401,7 +3407,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 
 			count_tess_inputs(&ctx);
 		}
-		ctx.temp_reg += tess_input_cache_count_multiused(ctx.temp_reg);
+		ctx.temp_reg += tess_input_cache_count_multiused(&ctx.tess_input_cache, ctx.temp_reg);
 		tgsi_parse_init(&ctx.parse, tokens);
 	}
 

@@ -364,6 +364,7 @@ struct r600_shader_ctx {
 	unsigned				enabled_stream_buffers_mask;
 	unsigned                                tess_input_info; /* temp with tess input offsets */
 	unsigned                                tess_output_info; /* temp with tess input offsets */
+	unsigned          tess_io_info_precalc; /* temp with precalcuated offsets */
 	struct r600_tess_input_cache tess_input_cache;
 };
 
@@ -389,7 +390,8 @@ static void r600_bytecode_src(struct r600_bytecode_alu_src *bc_src,
 			const struct r600_shader_src *shader_src,
 			unsigned chan);
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-					 unsigned dst_reg, unsigned mask, int param);
+										 unsigned temp_chan, unsigned dst_reg,
+										 unsigned mask, int param);
 
 static int tgsi_last_instruction(unsigned writemask)
 {
@@ -1019,7 +1021,7 @@ static int tgsi_declaration(struct r600_shader_ctx *ctx)
 			if (r)
 				return r;
 
-			do_lds_fetch_values(ctx, temp_reg, dreg, 0xF, param);
+			do_lds_fetch_values(ctx, temp_reg, 0, dreg, 0xF, param);
 		}
 		else if (d->Semantic.Name == TGSI_SEMANTIC_TESSCOORD) {
 			/* MOV r1.x, r0.x;
@@ -1634,7 +1636,9 @@ static int tgsi_split_gs_inputs(struct r600_shader_ctx *ctx)
  * All three shaders VS(LS), TCS, TES share the same LDS space.
  */
 /* this will return with the dw address in temp_reg.x */
-static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
+static int r600_get_byte_address(struct r600_shader_ctx *ctx,
+											unsigned *result_reg, unsigned *result_chan,
+											int base_offset_reg, int base_offset_chan,
 				 const struct tgsi_full_dst_register *dst,
 				 const struct tgsi_full_src_register *src,
 				 int stride_bytes_reg, int stride_bytes_chan, int *param)
@@ -1642,7 +1646,11 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 	struct tgsi_full_dst_register reg;
 	ubyte *name, *index, *array_first;
 	int r;
+	int temp_reg = -1;
 	struct tgsi_shader_info *info = &ctx->info;
+	*result_reg = base_offset_reg;
+	*result_chan = base_offset_chan;
+
 	/* Set the register description. The address computation is the same
 	 * for sources and destinations. */
 	if (src) {
@@ -1672,14 +1680,18 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 			sel = V_SQ_ALU_SRC_LITERAL;
 			chan = reg.Dimension.Index;
 		}
-
+		temp_reg = r600_get_temp(ctx);
+		*result_reg = temp_reg;
+		*result_chan = 0;
 		r = single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
 					temp_reg, 0,
 					stride_bytes_reg, stride_bytes_chan,
 					sel, chan,
-					temp_reg, 0);
+					base_offset_reg, base_offset_chan);
 		if (r)
 			return r;
+	} else {
+
 	}
 
 	if (reg.Register.File == TGSI_FILE_INPUT) {
@@ -1705,14 +1717,19 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 
 		addr_reg = get_address_file_reg(ctx, reg.Indirect.Index);
 
-		/* pull the value from index_reg */
+		if (temp_reg < 0)
+				temp_reg = r600_get_temp(ctx);
+
 		r = single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
-					temp_reg, 0,
-					V_SQ_ALU_SRC_LITERAL, 16,
-					addr_reg, 0,
-					temp_reg, 0);
+								 temp_reg, 0,
+								 V_SQ_ALU_SRC_LITERAL, 16,
+								 addr_reg, 0,
+								 *result_reg, *result_chan);
 		if (r)
 			return r;
+
+		*result_reg = temp_reg;
+		*result_chan = 0;
 
 		*param = r600_get_lds_unique_index(name[first],
 						  index[first]);
@@ -1726,7 +1743,8 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 }
 
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-					 unsigned dst_reg, unsigned mask, int param)
+										 unsigned temp_chan,
+										 unsigned dst_reg, unsigned mask, int param)
 {
 	struct r600_bytecode_alu alu;
 	int r, i;
@@ -1748,7 +1766,7 @@ static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
 		alu.dst.write = 1;
 		alu.op = ALU_OP2_ADD_INT;
 		alu.src[0].sel = temp_reg;
-		alu.src[0].chan = 0;
+		alu.src[0].chan = temp_chan;
 		alu.src[1].sel = V_SQ_ALU_SRC_LITERAL;
 		alu.src[1].value = 4 * i + 16 * param;
 
@@ -1811,20 +1829,18 @@ static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 				unsigned int dst_reg, unsigned mask)
 {
 	int r, param;
-	unsigned temp_reg = r600_get_temp(ctx);
-
-	r = get_lds_offset0(ctx, 2, temp_reg,
-				 src->Register.Dimension ? false : true);
-	if (r)
-		return r;
+	unsigned temp_reg;
+	unsigned temp_chan;
 
 	/* the base address is now in temp.x */
-	r = r600_get_byte_address(ctx, temp_reg,
-				  NULL, src, ctx->tess_output_info, 1, &param);
+	r = r600_get_byte_address(ctx, &temp_reg, &temp_chan,
+									  ctx->tess_io_info_precalc,
+									  src->Register.Dimension ? 2:3,
+									  NULL, src, ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
+	r = do_lds_fetch_values(ctx, temp_reg, temp_chan, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -1835,6 +1851,7 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 {
 	int r, param;
 	unsigned temp_reg = r600_get_temp(ctx);
+	unsigned temp_chan = 0;
 
 	/* t.x = ips * r0.y */
 	r = single_alu_op2(ctx, ALU_OP2_MUL_UINT24,
@@ -1846,12 +1863,13 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 		return r;
 
 	/* the base address is now in temp.x */
-	r = r600_get_byte_address(ctx, temp_reg,
-				  NULL, src, ctx->tess_input_info, 1, &param);
+	r = r600_get_byte_address(ctx, &temp_reg, &temp_chan,
+									  temp_reg, 0,
+									  NULL, src, ctx->tess_input_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
+	r = do_lds_fetch_values(ctx, temp_reg, temp_chan, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -1861,20 +1879,18 @@ static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_re
 				 unsigned int dst_reg, unsigned mask)
 {
 	int r, param;
-	unsigned temp_reg = r600_get_temp(ctx);
+	unsigned temp_reg;
+	unsigned temp_chan;
 
-	r = get_lds_offset0(ctx, 1, temp_reg,
-				 src->Register.Dimension ? false : true);
-	if (r)
-		return r;
-	/* the base address is now in temp.x */
-	r = r600_get_byte_address(ctx, temp_reg,
-				  NULL, src,
-				  ctx->tess_output_info, 1, &param);
+	r = r600_get_byte_address(ctx, &temp_reg, &temp_chan,
+									  ctx->tess_io_info_precalc,
+									  src->Register.Dimension ? 0:1,
+									  NULL, src,
+									  ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
+	r = do_lds_fetch_values(ctx, temp_reg, temp_chan, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -2862,6 +2878,7 @@ static int r600_fetch_tess_io_info(struct r600_shader_ctx *ctx)
 		r = r600_bytecode_add_vtx(ctx->bc, &vtx);
 		if (r)
 			return r;
+
 	}
 
 	/* used by TCS/TES */
@@ -2890,6 +2907,37 @@ static int r600_fetch_tess_io_info(struct r600_shader_ctx *ctx)
 		r = r600_bytecode_add_vtx(ctx->bc, &vtx);
 		if (r)
 			return r;
+
+		/* Precalc some offsets, after this we have
+		 * tess_io_info_precalc.x = tess_output_info.x * R0.y + tess_output_info.z
+		 * tess_io_info_precalc.y = tess_output_info.x * R0.y + tess_output_info.w
+		 * tess_io_info_precalc.z = tess_output_info.x * R0.z + tess_output_info.z
+		 * tess_io_info_precalc.w = tess_output_info.x * R0.z + tess_output_info.w
+		 */
+		single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
+							ctx->tess_io_info_precalc, 0,
+							ctx->tess_output_info, 0,
+							0, 1,
+							ctx->tess_output_info, 2);
+
+		single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
+							ctx->tess_io_info_precalc, 1,
+							ctx->tess_output_info, 0,
+							0, 1,
+							ctx->tess_output_info, 3);
+
+		single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
+							ctx->tess_io_info_precalc, 2,
+							ctx->tess_output_info, 0,
+							0, 2,
+							ctx->tess_output_info, 2);
+
+		single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
+							ctx->tess_io_info_precalc, 3,
+							ctx->tess_output_info, 0,
+							0, 2,
+							ctx->tess_output_info, 3);
+
 	}
 	return 0;
 }
@@ -2966,6 +3014,8 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 	const struct tgsi_full_dst_register *dst = &inst->Dst[0];
 	int i, r, lasti;
 	int temp_reg = r600_get_temp(ctx);
+	unsigned offs_reg;
+	unsigned offs_chan;
 	struct r600_bytecode_alu alu;
 	unsigned write_mask = dst->Register.WriteMask;
 	int param;
@@ -2973,19 +3023,17 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 	if (inst->Dst[0].Register.File != TGSI_FILE_OUTPUT)
 		return 0;
 
-	r = get_lds_offset0(ctx, 1, temp_reg, dst->Register.Dimension ? false : true);
-	if (r)
-		return r;
-
 	/* the base address is now in temp.x */
-	r = r600_get_byte_address(ctx, temp_reg,
+	r = r600_get_byte_address(ctx, &offs_reg, &offs_chan,
+									  ctx->tess_io_info_precalc,
+									  dst->Register.Dimension ? 0:1,
 				  &inst->Dst[0], NULL, ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
 	/* LDS write */
 	lasti = tgsi_last_instruction(write_mask);
-	for (i = (param > 0 ? 0: 1); i <= lasti; i++) {
+	for (i = 0; i <= lasti; i++) {
 
 		if (!(write_mask & (1 << i)))
 			continue;
@@ -2994,8 +3042,8 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 		alu.dst.chan = i;
 		alu.dst.write = 1;
 		alu.op = ALU_OP2_ADD_INT;
-		alu.src[0].sel = temp_reg;
-		alu.src[0].chan = 0;
+		alu.src[0].sel = offs_reg;
+		alu.src[0].chan = offs_chan;
 		alu.src[1].sel = V_SQ_ALU_SRC_LITERAL;
 		alu.src[1].value = 4 * i + 16 * param;
 
@@ -3069,7 +3117,7 @@ static int r600_tess_factor_read(struct r600_shader_ctx *ctx,
 	if (r)
 		return r;
 
-	do_lds_fetch_values(ctx, temp_reg, dreg, 0xf, param);
+	do_lds_fetch_values(ctx, temp_reg, 0, dreg, 0xf, param);
 	return 0;
 }
 
@@ -3382,11 +3430,13 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	if (ctx.type == PIPE_SHADER_TESS_CTRL) {
 		ctx.tess_input_info = ctx.bc->ar_reg + 3;
 		ctx.tess_output_info = ctx.bc->ar_reg + 4;
-		ctx.temp_reg = ctx.bc->ar_reg + 5;
+		ctx.tess_io_info_precalc = ctx.bc->ar_reg + 5;
+		ctx.temp_reg = ctx.bc->ar_reg + 6;
 	} else if (ctx.type == PIPE_SHADER_TESS_EVAL) {
 		ctx.tess_input_info = 0;
 		ctx.tess_output_info = ctx.bc->ar_reg + 3;
-		ctx.temp_reg = ctx.bc->ar_reg + 4;
+		ctx.tess_io_info_precalc = ctx.bc->ar_reg + 4;
+		ctx.temp_reg = ctx.bc->ar_reg + 5;
 	} else if (ctx.type == PIPE_SHADER_GEOMETRY) {
 		ctx.gs_export_gpr_tregs[0] = ctx.bc->ar_reg + 3;
 		ctx.gs_export_gpr_tregs[1] = ctx.bc->ar_reg + 4;

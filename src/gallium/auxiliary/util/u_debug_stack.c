@@ -90,9 +90,9 @@ symbol_name_cached(unw_cursor_t *cursor, unw_proc_info_t *pip)
          procname[1] = 0;
       }
 
-      asprintf(&name, "%s%s", procname, ret == -UNW_ENOMEM ? "..." : "");
-
-      util_hash_table_set(symbols_hash, addr, (void*)name);
+      if (asprintf(&name, "%s%s", procname, ret == -UNW_ENOMEM ? "..." : "") == -1) 
+		  name = "??";
+	  util_hash_table_set(symbols_hash, addr, (void*)name);
    }
    mtx_unlock(&symbols_mutex);
 

@@ -64,7 +64,7 @@ typedef void (*tc_execute)(struct pipe_context *pipe, union tc_payload *payload)
 static const tc_execute execute_func[TC_NUM_CALLS];
 
 static void
-tc_batch_check(struct tc_batch *batch)
+tc_batch_check(struct tc_batch *batch MAYBE_UNUSED)
 {
    tc_assert(batch->sentinel == TC_SENTINEL);
    tc_assert(batch->num_total_call_slots <= TC_CALLS_PER_BATCH);
@@ -80,7 +80,7 @@ tc_debug_check(struct threaded_context *tc)
 }
 
 static void
-tc_batch_execute(void *job, int thread_index)
+tc_batch_execute(void *job, int thread_index UNUSED)
 {
    struct tc_batch *batch = job;
    struct pipe_context *pipe = batch->pipe;
@@ -180,7 +180,7 @@ tc_is_sync(struct threaded_context *tc)
 }
 
 static void
-_tc_sync(struct threaded_context *tc, const char *info, const char *func)
+_tc_sync(struct threaded_context *tc, const char *info MAYBE_UNUSED, const char *func MAYBE_UNUSED)
 {
    struct tc_batch *last = &tc->batch_slots[tc->last];
    struct tc_batch *next = &tc->batch_slots[tc->next];
@@ -211,8 +211,9 @@ _tc_sync(struct threaded_context *tc, const char *info, const char *func)
    if (synced) {
       p_atomic_inc(&tc->num_syncs);
 
-      if (tc_strcmp(func, "tc_destroy") != 0)
+      if (tc_strcmp(func, "tc_destroy") != 0) {
          tc_printf("sync %s %s\n", func, info);
+	  }
    }
 
    tc_debug_check(tc);
@@ -1845,16 +1846,16 @@ tc_fence_server_sync(struct pipe_context *_pipe,
 }
 
 static struct pipe_video_codec *
-tc_create_video_codec(struct pipe_context *_pipe,
-                      const struct pipe_video_codec *templ)
+tc_create_video_codec(struct pipe_context *_pipe UNUSED,
+                      const struct pipe_video_codec *templ UNUSED)
 {
    unreachable("Threaded context should not be enabled for video APIs");
    return NULL;
 }
 
 static struct pipe_video_buffer *
-tc_create_video_buffer(struct pipe_context *_pipe,
-                       const struct pipe_video_buffer *templ)
+tc_create_video_buffer(struct pipe_context *_pipe UNUSED,
+                       const struct pipe_video_buffer *templ UNUSED)
 {
    unreachable("Threaded context should not be enabled for video APIs");
    return NULL;
@@ -2391,7 +2392,7 @@ struct tc_callback_payload {
 };
 
 static void
-tc_call_callback(struct pipe_context *pipe, union tc_payload *payload)
+tc_call_callback(struct pipe_context *pipe UNUSED, union tc_payload *payload)
 {
    struct tc_callback_payload *p = (struct tc_callback_payload *)payload;
 

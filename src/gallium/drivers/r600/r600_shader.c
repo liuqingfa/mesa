@@ -392,7 +392,7 @@ static void r600_bytecode_src(struct r600_bytecode_alu_src *bc_src,
 			const struct r600_shader_src *shader_src,
 			unsigned chan);
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-			       unsigned dst_reg, unsigned mask);
+			       unsigned dst_reg, unsigned mask, int param);
 
 static int tgsi_last_instruction(unsigned writemask)
 {
@@ -1033,14 +1033,7 @@ static int tgsi_declaration(struct r600_shader_ctx *ctx)
 			if (r)
 				return r;
 
-			r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-					   temp_reg, 0,
-					   temp_reg, 0,
-					   V_SQ_ALU_SRC_LITERAL, param * 16);
-			if (r)
-				return r;
-
-			do_lds_fetch_values(ctx, temp_reg, dreg, 0xF);
+			do_lds_fetch_values(ctx, temp_reg, dreg, 0xF, param);
 		}
 		else if (d->Semantic.Name == TGSI_SEMANTIC_TESSCOORD) {
 			/* MOV r1.x, r0.x;
@@ -1658,12 +1651,11 @@ static int tgsi_split_gs_inputs(struct r600_shader_ctx *ctx)
 static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 				 const struct tgsi_full_dst_register *dst,
 				 const struct tgsi_full_src_register *src,
-				 int stride_bytes_reg, int stride_bytes_chan)
+				 int stride_bytes_reg, int stride_bytes_chan, int *param)
 {
 	struct tgsi_full_dst_register reg;
 	ubyte *name, *index, *array_first;
 	int r;
-	int param;
 	struct tgsi_shader_info *info = &ctx->info;
 	/* Set the register description. The address computation is the same
 	 * for sources and destinations. */
@@ -1736,51 +1728,54 @@ static int r600_get_byte_address(struct r600_shader_ctx *ctx, int temp_reg,
 		if (r)
 			return r;
 
-		param = r600_get_lds_unique_index(name[first],
+		*param = r600_get_lds_unique_index(name[first],
 						  index[first]);
 
 	} else {
-		param = r600_get_lds_unique_index(name[reg.Register.Index],
+		*param = r600_get_lds_unique_index(name[reg.Register.Index],
 						  index[reg.Register.Index]);
 	}
 
-	/* add to base_addr - passed in temp_reg.x */
-	if (param) {
-		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-				   temp_reg, 0,
-				   temp_reg, 0,
-				   V_SQ_ALU_SRC_LITERAL, param * 16);
-		if (r)
-			return r;
-
-	}
 	return 0;
 }
 
 static int do_lds_fetch_values(struct r600_shader_ctx *ctx, unsigned temp_reg,
-			       unsigned dst_reg, unsigned mask)
+			       unsigned dst_reg, unsigned mask, int param)
 {
 	struct r600_bytecode_alu alu;
 	int r, i;
+	int lasti = tgsi_last_instruction(mask);
+	int firsti = param > 0 ? 0 : 1;
 
 	if ((ctx->bc->cf_last->ndw>>1) >= 0x60)
 		ctx->bc->force_add_cf = 1;
-	
-	for (i = 1; i < 4; i++) {
+
+	/* Add the offsets to the base address */
+	for (i = firsti; i <= lasti; i++) {
 		if (!(mask & (1 << i)))
 			continue;
-		
-		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-				   temp_reg, i,
-				   temp_reg, 0,
-				   V_SQ_ALU_SRC_LITERAL, 4 * i);
+
+		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
+		alu.dst.sel = temp_reg;
+		alu.dst.chan = i;
+		alu.dst.write = 1;
+		alu.op = ALU_OP2_ADD_INT;
+		alu.src[0].sel = temp_reg;
+		alu.src[0].chan = 0;
+		alu.src[1].sel = V_SQ_ALU_SRC_LITERAL;
+		alu.src[1].value = 4 * i + 16 * param;
+
+		if (i == lasti)
+			alu.last = 1;
+
+		r = r600_bytecode_add_alu(ctx->bc, &alu);
 		if (r)
 			return r;
 	}
+
 	for (i = 0; i < 4; i++) {
 		if (! (mask & (1 << i)))
 			continue;
-		
 		/* emit an LDS_READ_RET */
 		memset(&alu, 0, sizeof(alu));
 		alu.op = LDS_OP1_LDS_READ_RET;
@@ -1828,7 +1823,7 @@ static int fetch_mask( struct tgsi_src_register *reg)
 static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
 			   unsigned int dst_reg, unsigned mask)
 {
-	int r;
+	int r, param;
 	unsigned temp_reg = r600_get_temp(ctx);
 
 	r = get_lds_offset0(ctx, 2, temp_reg,
@@ -1838,11 +1833,11 @@ static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 
 	/* the base address is now in temp.x */
 	r = r600_get_byte_address(ctx, temp_reg,
-				  NULL, src, ctx->tess_output_info, 1);
+				  NULL, src, ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -1851,7 +1846,7 @@ static int fetch_tes_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
 			   unsigned int dst_reg, unsigned mask)
 {
-	int r;
+	int r,param;
 	unsigned temp_reg = r600_get_temp(ctx);
 
 	/* t.x = ips * r0.y */
@@ -1865,11 +1860,11 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 
 	/* the base address is now in temp.x */
 	r = r600_get_byte_address(ctx, temp_reg,
-				  NULL, src, ctx->tess_input_info, 1);
+				  NULL, src, ctx->tess_input_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -1878,7 +1873,7 @@ static int fetch_tcs_input(struct r600_shader_ctx *ctx, struct tgsi_full_src_reg
 static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_register *src,
 			    unsigned int dst_reg, unsigned mask)
 {
-	int r;
+	int r, param;
 	unsigned temp_reg = r600_get_temp(ctx);
 
 	r = get_lds_offset0(ctx, 1, temp_reg,
@@ -1888,11 +1883,11 @@ static int fetch_tcs_output(struct r600_shader_ctx *ctx, struct tgsi_full_src_re
 	/* the base address is now in temp.x */
 	r = r600_get_byte_address(ctx, temp_reg,
 				  NULL, src,
-				  ctx->tess_output_info, 1);
+				  ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
-	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask);
+	r = do_lds_fetch_values(ctx, temp_reg, dst_reg, mask, param);
 	if (r)
 		return r;
 	return 0;
@@ -2831,8 +2826,8 @@ static int emit_lds_vs_writes(struct r600_shader_ctx *ctx)
 
 		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
 				   temp_reg, 2,
-				   temp_reg, param ? 1 : 0,
-				   V_SQ_ALU_SRC_LITERAL, 8);
+				   temp_reg, 0,
+				   V_SQ_ALU_SRC_LITERAL, 8 + param * 16);
 		if (r)
 			return r;
 
@@ -2867,6 +2862,7 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 	int temp_reg = r600_get_temp(ctx);
 	struct r600_bytecode_alu alu;
 	unsigned write_mask = dst->Register.WriteMask;
+	int param;
 
 	if (inst->Dst[0].Register.File != TGSI_FILE_OUTPUT)
 		return 0;
@@ -2877,20 +2873,30 @@ static int r600_store_tcs_output(struct r600_shader_ctx *ctx)
 
 	/* the base address is now in temp.x */
 	r = r600_get_byte_address(ctx, temp_reg,
-				  &inst->Dst[0], NULL, ctx->tess_output_info, 1);
+				  &inst->Dst[0], NULL, ctx->tess_output_info, 1, &param);
 	if (r)
 		return r;
 
 	/* LDS write */
 	lasti = tgsi_last_instruction(write_mask);
-	for (i = 1; i <= lasti; i++) {
+	for (i = (param > 0 ? 0: 1); i <= lasti; i++) {
 
 		if (!(write_mask & (1 << i)))
 			continue;
-		r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-				   temp_reg, i,
-				   temp_reg, 0,
-				   V_SQ_ALU_SRC_LITERAL, 4 * i);
+		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
+		alu.dst.sel = temp_reg;
+		alu.dst.chan = i;
+		alu.dst.write = 1;
+		alu.op = ALU_OP2_ADD_INT;
+		alu.src[0].sel = temp_reg;
+		alu.src[0].chan = 0;
+		alu.src[1].sel = V_SQ_ALU_SRC_LITERAL;
+		alu.src[1].value = 4 * i + 16 * param;
+
+		if (i == lasti)
+			alu.last = 1;
+
+		r = r600_bytecode_add_alu(ctx->bc, &alu);
 		if (r)
 			return r;
 	}
@@ -2957,14 +2963,7 @@ static int r600_tess_factor_read(struct r600_shader_ctx *ctx,
 	if (r)
 		return r;
 
-	r = single_alu_op2(ctx, ALU_OP2_ADD_INT,
-			   temp_reg, 0,
-			   temp_reg, 0,
-			   V_SQ_ALU_SRC_LITERAL, param * 16);
-	if (r)
-		return r;
-
-	do_lds_fetch_values(ctx, temp_reg, dreg, 0xf);
+	do_lds_fetch_values(ctx, temp_reg, dreg, 0xf, param);
 	return 0;
 }
 

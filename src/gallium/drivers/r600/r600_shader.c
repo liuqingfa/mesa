@@ -2047,6 +2047,34 @@ static void count_tess_inputs(struct r600_shader_ctx *ctx)
 	}
 }
 
+static void preload_tes_lds(struct r600_shader_ctx *ctx)
+{
+	int i;
+	ctx->max_driver_temp_used = 0;
+	r600_get_temp(ctx);
+
+	for (i = 0; i < ctx->tess_input_cache.fill; ++i) {
+		struct r600_tess_input_cache_entry *ce = &ctx->tess_input_cache.data[i];
+		fetch_tes_input(ctx, &ce->key, ce->reg, ce->mask);
+		ce->initialized = 1;
+	}
+}
+
+static void preload_tcs_lds(struct r600_shader_ctx *ctx)
+{
+	int i;
+	ctx->max_driver_temp_used = 0;
+	r600_get_temp(ctx);
+	for (i = 0; i < ctx->tess_input_cache.fill; ++i) {
+		struct r600_tess_input_cache_entry *ce = &ctx->tess_input_cache.data[i];
+		if (ce->key.Register.File == TGSI_FILE_INPUT)
+			fetch_tcs_input(ctx, &ce->key, ce->reg, ce->mask);
+		else
+			fetch_tcs_output(ctx, &ce->key, ce->reg, ce->mask);
+		ce->initialized = 1;
+	}
+}
+
 static int tgsi_split_lds_inputs(struct r600_shader_ctx *ctx)
 {
 	struct tgsi_full_instruction *inst = &ctx->parse.FullToken.FullInstruction;
@@ -3623,6 +3651,11 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 		if ((r = process_twoside_color_inputs(&ctx)))
 			return r;
 	}
+
+	if (ctx.type == PIPE_SHADER_TESS_EVAL)
+		preload_tes_lds(&ctx);
+	else if (ctx.type == PIPE_SHADER_TESS_CTRL)
+		preload_tcs_lds(&ctx);
 
 	tgsi_parse_init(&ctx.parse, tokens);
 	while (!tgsi_parse_end_of_tokens(&ctx.parse)) {

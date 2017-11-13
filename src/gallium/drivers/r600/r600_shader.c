@@ -289,7 +289,7 @@ error:
 	return r;
 }
 
-void r600_pipe_shader_destroy(struct pipe_context *ctx, struct r600_pipe_shader *shader)
+void r600_pipe_shader_destroy(struct pipe_context *ctx UNUSED, struct r600_pipe_shader *shader)
 {
 	r600_resource_reference(&shader->bo, NULL);
 	r600_bytecode_clear(&shader->shader.bc);
@@ -1094,7 +1094,8 @@ static int allocate_system_value_inputs(struct r600_shader_ctx *ctx, int gpr_off
 
 		{ false, &ctx->fixed_pt_position_gpr, TGSI_SEMANTIC_SAMPLEID, TGSI_SEMANTIC_SAMPLEPOS } /* SAMPLEID is in Fixed Point Position GPR.w */
 	};
-	int i, k, num_regs = 0;
+	int num_regs = 0;
+	unsigned k, i;
 
 	if (tgsi_parse_init(&parse, ctx->tokens) != TGSI_PARSE_OK) {
 		return 0;
@@ -1997,11 +1998,12 @@ static int process_twoside_color_inputs(struct r600_shader_ctx *ctx)
 }
 
 static int emit_streamout(struct r600_shader_ctx *ctx, struct pipe_stream_output_info *so,
-						  int stream, unsigned *stream_item_size)
+						  int stream, unsigned *stream_item_size UNUSED)
 {
 	unsigned so_gpr[PIPE_MAX_SHADER_OUTPUTS];
 	unsigned start_comp[PIPE_MAX_SHADER_OUTPUTS];
-	int i, j, r;
+	int j, r;
+	unsigned i; 
 
 	/* Sanity checking. */
 	if (so->num_outputs > PIPE_MAX_SO_OUTPUTS) {
@@ -2153,13 +2155,14 @@ static int generate_gs_copy_shader(struct r600_context *rctx,
 	struct r600_shader_ctx ctx = {};
 	struct r600_shader *gs_shader = &gs->shader;
 	struct r600_pipe_shader *cshader;
-	int ocnt = gs_shader->noutput;
+	unsigned ocnt = gs_shader->noutput;
 	struct r600_bytecode_alu alu;
 	struct r600_bytecode_vtx vtx;
 	struct r600_bytecode_output output;
 	struct r600_bytecode_cf *cf_jump, *cf_pop,
 		*last_exp_pos = NULL, *last_exp_param = NULL;
-	int i, j, next_clip_pos = 61, next_param = 0;
+	int next_clip_pos = 61, next_param = 0;
+	unsigned i, j; 
 	int ring;
 	bool only_ring_0 = true;
 	cshader = calloc(1, sizeof(struct r600_pipe_shader));
@@ -2475,10 +2478,11 @@ static int emit_inc_ring_offset(struct r600_shader_ctx *ctx, int idx, bool ind)
 	return 0;
 }
 
-static int emit_gs_ring_writes(struct r600_shader_ctx *ctx, const struct pipe_stream_output_info *so, int stream, bool ind)
+static int emit_gs_ring_writes(struct r600_shader_ctx *ctx, const struct pipe_stream_output_info *so UNUSED, int stream, bool ind)
 {
 	struct r600_bytecode_output output;
-	int i, k, ring_offset;
+	int ring_offset;
+	unsigned i, k; 
 	int effective_stream = stream == -1 ? 0 : stream;
 	int idx = 0;
 
@@ -2619,8 +2623,9 @@ static int r600_fetch_tess_io_info(struct r600_shader_ctx *ctx)
 
 static int emit_lds_vs_writes(struct r600_shader_ctx *ctx)
 {
-	int i, j, r;
+	int j, r;
 	int temp_reg;
+	unsigned i; 
 
 	/* fetch tcs input values into input_vals */
 	ctx->tess_input_info = r600_get_temp(ctx);
@@ -2793,10 +2798,10 @@ static int r600_tess_factor_read(struct r600_shader_ctx *ctx,
 
 static int r600_emit_tess_factor(struct r600_shader_ctx *ctx)
 {
-	unsigned i;
 	int stride, outer_comps, inner_comps;
 	int tessinner_idx = -1, tessouter_idx = -1;
-	int r;
+	int i, r;
+	unsigned j;
 	int temp_reg = r600_get_temp(ctx);
 	int treg[3] = {-1, -1, -1};
 	struct r600_bytecode_alu alu;
@@ -2843,11 +2848,11 @@ static int r600_emit_tess_factor(struct r600_shader_ctx *ctx)
 
 	/* R0 is InvocationID, RelPatchID, PatchID, tf_base */
 	/* TF_WRITE takes index in R.x, value in R.y */
-	for (i = 0; i < ctx->shader->noutput; i++) {
-		if (ctx->shader->output[i].name == TGSI_SEMANTIC_TESSINNER)
-			tessinner_idx = i;
-		if (ctx->shader->output[i].name == TGSI_SEMANTIC_TESSOUTER)
-			tessouter_idx = i;
+	for (j = 0; j < ctx->shader->noutput; j++) {
+		if (ctx->shader->output[j].name == TGSI_SEMANTIC_TESSINNER)
+			tessinner_idx = j;
+		if (ctx->shader->output[j].name == TGSI_SEMANTIC_TESSOUTER)
+			tessouter_idx = j;
 	}
 
 	if (tessouter_idx == -1)
@@ -2948,7 +2953,8 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	struct r600_bytecode_output output[ARRAY_SIZE(shader->output)];
 	unsigned output_done, noutput;
 	unsigned opcode;
-	int i, j, k, r = 0;
+	int j, k, r = 0;
+	unsigned i; 
 	int next_param_base = 0, next_clip_base;
 	int max_color_exports = MAX2(key.ps.nr_cbufs, 1);
 	bool indirect_gprs;
@@ -3638,7 +3644,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 				goto out_err;
 			}
 
-			if (output[j].type==-1) {
+			if ((int)output[j].type==-1) {
 				output[j].type = V_SQ_CF_ALLOC_EXPORT_WORD0_SQ_EXPORT_PARAM;
 				output[j].array_base = next_param_base++;
 			}
@@ -3696,10 +3702,10 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 		noutput = j;
 
 		/* set export done on last export of each type */
-		for (i = noutput - 1, output_done = 0; i >= 0; i--) {
-			if (!(output_done & (1 << output[i].type))) {
-				output_done |= (1 << output[i].type);
-				output[i].op = CF_OP_EXPORT_DONE;
+		for (k = noutput - 1, output_done = 0; k >= 0; k--) {
+			if (!(output_done & (1 << output[k].type))) {
+				output_done |= (1 << output[k].type);
+				output[k].op = CF_OP_EXPORT_DONE;
 			}
 		}
 		/* add output to bytecode */
@@ -3759,7 +3765,7 @@ static int tgsi_unsupported(struct r600_shader_ctx *ctx)
 	return -EINVAL;
 }
 
-static int tgsi_end(struct r600_shader_ctx *ctx)
+static int tgsi_end(struct r600_shader_ctx *ctx UNUSED)
 {
 	return 0;
 }
@@ -7645,7 +7651,7 @@ static int tgsi_tex(struct r600_shader_ctx *ctx)
 static int find_hw_atomic_counter(struct r600_shader_ctx *ctx,
 				  struct tgsi_full_src_register *src)
 {
-	int i;
+	unsigned i;
 
 	if (src->Register.Indirect) {
 		for (i = 0; i < ctx->shader->nhwatomic_ranges; i++) {
@@ -7655,7 +7661,7 @@ static int find_hw_atomic_counter(struct r600_shader_ctx *ctx,
 	} else {
 		uint32_t index = src->Register.Index;
 		for (i = 0; i < ctx->shader->nhwatomic_ranges; i++) {
-			if (ctx->shader->atomics[i].buffer_id != src->Dimension.Index)
+			if (ctx->shader->atomics[i].buffer_id != (unsigned)src->Dimension.Index)
 				continue;
 			if (index > ctx->shader->atomics[i].end)
 				continue;
@@ -7821,7 +7827,7 @@ static int tgsi_lrp(struct r600_shader_ctx *ctx)
 {
 	struct tgsi_full_instruction *inst = &ctx->parse.FullToken.FullInstruction;
 	struct r600_bytecode_alu alu;
-	int lasti = tgsi_last_instruction(inst->Dst[0].Register.WriteMask);
+	unsigned lasti = tgsi_last_instruction(inst->Dst[0].Register.WriteMask);
 	unsigned i, temp_regs[2];
 	int r;
 
@@ -8616,7 +8622,8 @@ static inline void callstack_update_max_depth(struct r600_shader_ctx *ctx,
                                               unsigned reason)
 {
 	struct r600_stack_info *stack = &ctx->bc->stack;
-	unsigned elements, entries;
+	unsigned elements;
+	int entries;
 
 	unsigned entry_size = stack->entry_size;
 
@@ -8871,7 +8878,7 @@ static int tgsi_bgnloop(struct r600_shader_ctx *ctx)
 
 static int tgsi_endloop(struct r600_shader_ctx *ctx)
 {
-	unsigned i;
+	int i;
 
 	r600_bytecode_add_cfinst(ctx->bc, CF_OP_LOOP_END);
 
@@ -9443,8 +9450,7 @@ static const struct r600_shader_tgsi_instruction eg_shader_tgsi_instruction[] = 
 	[TGSI_OPCODE_ENDIF]	= { ALU_OP0_NOP, tgsi_endif},
 	[TGSI_OPCODE_DDX_FINE]	= { FETCH_OP_GET_GRADIENTS_H, tgsi_tex},
 	[TGSI_OPCODE_DDY_FINE]	= { FETCH_OP_GET_GRADIENTS_V, tgsi_tex},
-	[82]			= { ALU_OP0_NOP, tgsi_unsupported},
-	[83]			= { ALU_OP0_NOP, tgsi_unsupported},
+	[82]			= { ALU_OP0_NOP, tgsi_unsupported},	
 	[TGSI_OPCODE_CEIL]	= { ALU_OP1_CEIL, tgsi_op2},
 	[TGSI_OPCODE_I2F]	= { ALU_OP1_INT_TO_FLT, tgsi_op2_trans},
 	[TGSI_OPCODE_NOT]	= { ALU_OP1_NOT_INT, tgsi_op2},
@@ -9667,7 +9673,6 @@ static const struct r600_shader_tgsi_instruction cm_shader_tgsi_instruction[] = 
 	[TGSI_OPCODE_DDX_FINE]	= { FETCH_OP_GET_GRADIENTS_H, tgsi_tex},
 	[TGSI_OPCODE_DDY_FINE]	= { FETCH_OP_GET_GRADIENTS_V, tgsi_tex},
 	[82]			= { ALU_OP0_NOP, tgsi_unsupported},
-	[83]			= { ALU_OP0_NOP, tgsi_unsupported},
 	[TGSI_OPCODE_CEIL]	= { ALU_OP1_CEIL, tgsi_op2},
 	[TGSI_OPCODE_I2F]	= { ALU_OP1_INT_TO_FLT, tgsi_op2},
 	[TGSI_OPCODE_NOT]	= { ALU_OP1_NOT_INT, tgsi_op2},

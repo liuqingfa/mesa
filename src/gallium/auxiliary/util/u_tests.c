@@ -46,8 +46,9 @@ static struct pipe_resource *
 util_create_texture2d(struct pipe_screen *screen, unsigned width,
                       unsigned height, enum pipe_format format)
 {
-   struct pipe_resource templ = {{0}};
+   struct pipe_resource templ;
 
+   templ.reference.count = 0;
    templ.target = PIPE_TEXTURE_2D;
    templ.width0 = width;
    templ.height0 = height;
@@ -66,9 +67,10 @@ static void
 util_set_framebuffer_cb0(struct cso_context *cso, struct pipe_context *ctx,
 			 struct pipe_resource *tex)
 {
-   struct pipe_surface templ = {{0}}, *surf;
+   struct pipe_surface templ, *surf;
    struct pipe_framebuffer_state fb = {0};
 
+   templ.reference.count = 0;
    templ.format = tex->format;
    surf = ctx->create_surface(ctx, tex, &templ);
 
@@ -93,8 +95,9 @@ util_set_blend_normal(struct cso_context *cso)
 static void
 util_set_dsa_disable(struct cso_context *cso)
 {
-   struct pipe_depth_stencil_alpha_state dsa = {{0}};
+   struct pipe_depth_stencil_alpha_state dsa;
 
+   dsa.depth.enabled = 0;
    cso_set_depth_stencil_alpha(cso, &dsa);
 }
 

@@ -39,8 +39,6 @@ using std::transform;
 using std::copy;
 using std::tuple;
 
-
-
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAdd)
 {
    const vector<FakeCodeline> code = {
@@ -1655,7 +1653,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
  */
 TEST_F(RegisterRemappingTest, RegisterRemapping1)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_lifetime> lt({{-1,-1},
                         {0,1},
                         {0,2},
                         {1,2},
@@ -1670,7 +1668,7 @@ TEST_F(RegisterRemappingTest, RegisterRemapping1)
 
 TEST_F(RegisterRemappingTest, RegisterRemapping2)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_lifetime> lt({{-1,-1},
                         {0,1},
                         {0,2},
                         {3,4},
@@ -1682,7 +1680,7 @@ TEST_F(RegisterRemappingTest, RegisterRemapping2)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingMergeAllToOne)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_lifetime> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},
@@ -1694,7 +1692,7 @@ TEST_F(RegisterRemappingTest, RegisterRemappingMergeAllToOne)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingIgnoreUnused)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_lifetime> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},
@@ -1707,7 +1705,7 @@ TEST_F(RegisterRemappingTest, RegisterRemappingIgnoreUnused)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingMergeZeroLifetimeRegisters)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_lifetime> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},
@@ -1790,4 +1788,3 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyR
    /* lt: 0: 0-2 1: u 2: 1-2 3: u 4: 2-5 5: 4-5 6: u 7:ro 8: 5-7 */
    run (code, vector<int>({0,1,2,3,0,2,6,7,0}));
 }
-

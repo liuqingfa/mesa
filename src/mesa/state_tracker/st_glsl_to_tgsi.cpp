@@ -5287,19 +5287,24 @@ glsl_to_tgsi_visitor::merge_two_dsts(void)
 void
 glsl_to_tgsi_visitor::merge_registers(void)
 {
-   struct lifetime *lifetimes =
-         rzalloc_array(mem_ctx, struct lifetime, this->next_temp);
+   struct array_lifetime *array_lifetimes = nullptr;
 
-   if (get_temp_registers_required_lifetimes(mem_ctx, &this->instructions,
-                                             this->next_temp, lifetimes)) {
+   struct register_lifetime *reg_lifetimes =
+         rzalloc_array(mem_ctx, struct register_lifetime, this->next_temp);
+
+   if (this->next_array > 0)
+      array_lifetimes = rzalloc_array(reg_lifetimes, struct array_lifetime,
+                                    this->next_array);
+
+   if (get_temp_registers_required_lifetimes(reg_lifetimes, &this->instructions,
+                                             this->next_temp, reg_lifetimes,
+                                             this->next_array, array_lifetimes)) {
       struct rename_reg_pair *renames =
-            rzalloc_array(mem_ctx, struct rename_reg_pair, this->next_temp);
-      get_temp_registers_remapping(mem_ctx, this->next_temp, lifetimes, renames);
+            rzalloc_array(reg_lifetimes, struct rename_reg_pair, this->next_temp);
+      get_temp_registers_remapping(reg_lifetimes, this->next_temp, reg_lifetimes, renames);
       rename_temp_registers(renames);
-      ralloc_free(renames);
    }
-
-   ralloc_free(lifetimes);
+   ralloc_free(reg_lifetimes);
 }
 
 /* Reassign indices to temporary registers by reusing unused indices created
@@ -6572,7 +6577,7 @@ st_translate_program(
       struct gl_program *prog = program->prog;
 
       if (!st_context(ctx)->has_hw_atomics) {
-	 for (i = 0; i < prog->info.num_abos; i++) {
+         for (i = 0; i < prog->info.num_abos; i++) {
             unsigned index = prog->sh.AtomicBuffers[i]->Binding;
             assert(index < frag_const->MaxAtomicBuffers);
             t->buffers[index] = ureg_DECL_buffer(ureg, index, true);

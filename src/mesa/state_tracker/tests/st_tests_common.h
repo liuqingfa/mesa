@@ -112,14 +112,14 @@ class LifetimeEvaluatorTest : public MesaTestWithMemCtx {
 protected:
    void run(const std::vector<FakeCodeline>& code, const expectation& e);
 private:
-   virtual void check(const std::vector<lifetime>& result, const expectation& e) = 0;
+   virtual void check(const std::vector<register_lifetime>& result, const expectation& e) = 0;
 };
 
 /* This is a test class to check the exact life times of
  * registers. */
 class LifetimeEvaluatorExactTest : public LifetimeEvaluatorTest {
 protected:
-   void check(const std::vector<lifetime>& result, const expectation& e);
+   void check(const std::vector<register_lifetime>& result, const expectation& e);
 };
 
 /* This test class checks that the life time covers at least
@@ -129,13 +129,13 @@ protected:
  */
 class LifetimeEvaluatorAtLeastTest : public LifetimeEvaluatorTest {
 protected:
-   void check(const std::vector<lifetime>& result, const expectation& e);
+   void check(const std::vector<register_lifetime>& result, const expectation& e);
 };
 
 /* With this test class the renaming mapping estimation is tested */
 class RegisterRemappingTest : public MesaTestWithMemCtx {
 protected:
-   void run(const std::vector<lifetime>& lt, const std::vector<int>& expect);
+   void run(const std::vector<register_lifetime>& lt, const std::vector<int>& expect);
 };
 
 /* With this test class the combined lifetime estimation and renaming

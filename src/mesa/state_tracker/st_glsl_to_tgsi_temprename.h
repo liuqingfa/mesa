@@ -33,9 +33,16 @@
  * last instruction in which a value can be read from this temporary.
  * Hence, a register R2 can be merged with a register R1 if R1.end <= R2.begin.
  */
-struct lifetime {
+struct register_lifetime {
    int begin;
    int end;
+};
+
+
+struct array_lifetime {
+   int begin;
+   int end;
+   int access_swizzle;
 };
 
 /** Evaluates the required life times of temporary registers in a shader.
@@ -44,17 +51,23 @@ struct lifetime {
  * @param[in] mem_ctx a memory context that can be used with the ralloc_* functions
  * @param[in] instructions the shader to be anlzyed
  * @param[in] ntemps number of temporaries reserved for this shader
- * @param[in,out] lifetimes memory location to store the estimated required
+ * @param[in,out] reg_lifetimes memory location to store the estimated required
  *   life times for each temporary register. The parameter must point to
- *   allocated memory that can hold ntemps lifetime structures. On output
- *   the life times contains the life times for the registers with the
+ *   allocated memory that can hold ntemps register_lifetime structures. On
+ *   output the life times contains the life times for the registers with the
  *   exception of TEMP[0].
+ * @param[in] narrays number of array reserved for this shader
+ * @param[in,out] arr_lifetimes memory location to store the estimated required
+ *   life times for each array. The parameter must point to
+ *   allocated memory that can hold narray array_lifetime structures. On output
+ *   the life times contains the life times for the arrays.
  * @returns: true if the lifetimes were estimated, false if not (i.e. if a
  * subroutine was called).
  */
 bool
 get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
-                                      int ntemps, struct lifetime *lifetimes);
+                                      int ntemps, struct register_lifetime *reg_lifetimes,
+                                      int narrays, struct array_lifetime *arr_lifetimes);
 /** Estimate the merge remapping of the registers.
  * @param[in] mem_ctx a memory context that can be used with the ralloc_* functions
  * @param[in] ntemps number of temporaries reserved for this shader
@@ -65,7 +78,7 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
  *  Note that TEMP[0] is not considered for register renaming.
  */
 void get_temp_registers_remapping(void *mem_ctx, int ntemps,
-                                  const struct lifetime* lifetimes,
+                                  const struct register_lifetime* lifetimes,
                                   struct rename_reg_pair *result);
 
 #endif

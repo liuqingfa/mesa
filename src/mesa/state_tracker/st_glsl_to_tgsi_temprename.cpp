@@ -149,7 +149,7 @@ public:
 
    void record_read(int line, prog_scope *scope);
    void record_write(int line, prog_scope *scope);
-   lifetime get_required_lifetime();
+   register_lifetime get_required_lifetime();
 private:
    void propagate_lifetime_to_dominant_write_scope();
    bool conditional_ifelse_write_in_loop() const;
@@ -221,7 +221,7 @@ public:
    temp_access();
    void record_read(int line, prog_scope *scope, int swizzle);
    void record_write(int line, prog_scope *scope, int writemask);
-   lifetime get_required_lifetime();
+   register_lifetime get_required_lifetime();
 private:
    void update_access_mask(int mask);
 
@@ -504,22 +504,22 @@ void temp_access::record_read(int line, prog_scope *scope, int swizzle)
       comp[3].record_read(line, scope);
 }
 
-inline static lifetime make_lifetime(int b, int e)
+inline static register_lifetime make_lifetime(int b, int e)
 {
-   lifetime lt;
+   register_lifetime lt;
    lt.begin = b;
    lt.end = e;
    return lt;
 }
 
-lifetime temp_access::get_required_lifetime()
+register_lifetime temp_access::get_required_lifetime()
 {
-   lifetime result = make_lifetime(-1, -1);
+   register_lifetime result = make_lifetime(-1, -1);
 
    unsigned mask = access_mask;
    while (mask) {
       unsigned chan = u_bit_scan(&mask);
-      lifetime lt = comp[chan].get_required_lifetime();
+      register_lifetime lt = comp[chan].get_required_lifetime();
 
       if (lt.begin >= 0) {
          if ((result.begin < 0) || (result.begin > lt.begin))
@@ -748,7 +748,7 @@ void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
       last_read = lr;
 }
 
-lifetime temp_comp_access::get_required_lifetime()
+register_lifetime temp_comp_access::get_required_lifetime()
 {
    bool keep_for_full_loop = false;
 
@@ -877,7 +877,7 @@ public:
    void record_read(const st_src_reg& src, int line, prog_scope *scope);
    void record_write(const st_dst_reg& src, int line, prog_scope *scope);
 
-   void get_required_lifetimes(struct lifetime *lifetimes);
+   void get_required_lifetimes(struct register_lifetime *lifetimes);
 private:
 
    int ntemps;
@@ -920,7 +920,7 @@ void access_recorder::record_write(const st_dst_reg& dst, int line,
       record_read(*dst.reladdr2, line, scope);
 }
 
-void access_recorder::get_required_lifetimes(struct lifetime *lifetimes)
+void access_recorder::get_required_lifetimes(struct register_lifetime *lifetimes)
 {
    RENAME_DEBUG(cerr << "========= lifetimes ==============\n");
    for(int i = 0; i < ntemps; ++i) {
@@ -945,7 +945,9 @@ static void dump_instruction(std::ostream& os, int line, prog_scope *scope,
  */
 bool
 get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
-                                      int ntemps, struct lifetime *lifetimes)
+                                      int ntemps, struct register_lifetime *lifetimes,
+                                      UNUSED int narrays,
+                                      UNUSED struct array_lifetime *arr_lifetimes)
 {
    int line = 0;
    int loop_id = 1;
@@ -1154,7 +1156,7 @@ static int access_record_compare (const void *a, const void *b) {
 /* This functions evaluates the register merges by using a binary
  * search to find suitable merge candidates. */
 void get_temp_registers_remapping(void *mem_ctx, int ntemps,
-                                  const struct lifetime* lifetimes,
+                                  const struct register_lifetime* lifetimes,
                                   struct rename_reg_pair *result)
 {
    access_record *reg_access = ralloc_array(mem_ctx, access_record, ntemps);

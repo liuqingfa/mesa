@@ -21,16 +21,16 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include <state_tracker/st_glsl_to_tgsi_temprename.h>
 #include <tgsi/tgsi_ureg.h>
 #include <tgsi/tgsi_info.h>
-#include <compiler/glsl/list.h>
 #include <mesa/program/prog_instruction.h>
 
-#include <utility>
 #include <gtest/gtest.h>
+#include <utility>
 #include <algorithm>
 #include <iostream>
+
+#include "st_tests_common.h"
 
 using std::vector;
 using std::pair;
@@ -39,125 +39,11 @@ using std::transform;
 using std::copy;
 using std::tuple;
 
-/* Use this to make the compiler pick the swizzle constructor below */
-struct SWZ {};
 
-/* Use this to make the compiler pick the constructor with reladdr below */
-struct RA {};
-
-/* A line to describe a TGSI instruction for building mock shaders. */
-struct MockCodeline {
-   MockCodeline(unsigned _op): op(_op), max_temp_id(0){}
-   MockCodeline(unsigned _op, const vector<int>& _dst, const vector<int>& _src,
-                const vector<int>&_to);
-
-   MockCodeline(unsigned _op, const vector<pair<int,int>>& _dst,
-                const vector<pair<int, const char *>>& _src,
-                const vector<pair<int, const char *>>&_to, SWZ with_swizzle);
-
-   MockCodeline(unsigned _op, const vector<tuple<int,int,int>>& _dst,
-                const vector<tuple<int,int,int>>& _src,
-                const vector<tuple<int,int,int>>&_to, RA with_reladdr);
-
-   int get_max_reg_id() const { return max_temp_id;}
-
-   glsl_to_tgsi_instruction *get_codeline() const;
-
-   static void set_mem_ctx(void *ctx);
-
-private:
-   st_src_reg create_src_register(int src_idx);
-   st_src_reg create_src_register(int src_idx, const char *swizzle);
-   st_src_reg create_src_register(int src_idx, gl_register_file file);
-   st_src_reg create_src_register(const tuple<int,int,int>& src);
-   st_src_reg *create_rel_src_register(int idx);
-
-   st_dst_reg create_dst_register(int dst_idx);
-   st_dst_reg create_dst_register(int dst_idx, int writemask);
-   st_dst_reg create_dst_register(int dst_idx, gl_register_file file);
-   st_dst_reg create_dst_register(const tuple<int,int,int>& dest);
-   unsigned op;
-   vector<st_dst_reg> dst;
-   vector<st_src_reg> src;
-   vector<st_src_reg> tex_offsets;
-
-   int max_temp_id;
-   static void *mem_ctx;
-};
-
-/* A few constants that will notbe tracked as temporary registers by the
- * mock shader.
- */
-const int in0 = -1;
-const int in1 = -2;
-const int in2 = -3;
-
-const int out0 = -1;
-const int out1 = -2;
-
-class MockShader {
-public:
-   MockShader(const vector<MockCodeline>& source, void *ctx);
-
-   exec_list* get_program() const;
-   int get_num_temps() const;
-
-private:
-   exec_list* program;
-   int num_temps;
-};
-
-using expectation = vector<vector<int>>;
-
-class MesaTestWithMemCtx : public testing::Test {
-   void SetUp();
-   void TearDown();
-protected:
-   void *mem_ctx;
-};
-
-class LifetimeEvaluatorTest : public MesaTestWithMemCtx {
-protected:
-   void run(const vector<MockCodeline>& code, const expectation& e);
-private:
-   virtual void check(const vector<lifetime>& result, const expectation& e) = 0;
-};
-
-/* This is a test class to check the exact life times of
- * registers. */
-class LifetimeEvaluatorExactTest : public LifetimeEvaluatorTest {
-protected:
-   void check(const vector<lifetime>& result, const expectation& e);
-};
-
-/* This test class checks that the life time covers at least
- * in the expected range. It is used for cases where we know that
- * a the implementation could be improved on estimating the minimal
- * life time.
- */
-class LifetimeEvaluatorAtLeastTest : public LifetimeEvaluatorTest {
-protected:
-   void check(const vector<lifetime>& result, const expectation& e);
-};
-
-/* With this test class the renaming mapping estimation is tested */
-class RegisterRemappingTest : public MesaTestWithMemCtx {
-protected:
-   void run(const vector<lifetime>& lt, const vector<int>& expect);
-};
-
-/* With this test class the combined lifetime estimation and renaming
- * mepping estimation is tested
- */
-class RegisterLifetimeAndRemappingTest : public RegisterRemappingTest  {
-protected:
-   using RegisterRemappingTest::run;
-   void run(const vector<MockCodeline>& code, const vector<int>& expect);
-};
 
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAdd)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_UADD, {out0}, {1,in0}, {}},
       { TGSI_OPCODE_END}
@@ -167,7 +53,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAdd)
 
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAddMove)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
@@ -184,7 +70,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAddMove)
  */
 TEST_F(LifetimeEvaluatorExactTest, SimpleOpWithTexoffset)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {2}, {in1}, {}},
       { TGSI_OPCODE_TEX, {out0}, {in0}, {1,2}},
@@ -200,7 +86,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleOpWithTexoffset)
  */
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_UADD, {2}, {1,in0}, {}},
@@ -218,7 +104,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, MoveInIfInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in1}, {}},
@@ -238,7 +124,7 @@ TEST_F(LifetimeEvaluatorExactTest, MoveInIfInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, NonDominantWriteinIfInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_MOV, {1}, {in0}, {}},
       {   TGSI_OPCODE_IF, {}, {in1}, {}},
@@ -260,7 +146,7 @@ TEST_F(LifetimeEvaluatorExactTest, NonDominantWriteinIfInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, MoveInIfInNestedLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
@@ -282,7 +168,7 @@ TEST_F(LifetimeEvaluatorExactTest, MoveInIfInNestedLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -305,7 +191,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseReadInElseInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -329,7 +215,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseReadInElseInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInElseReadInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -351,7 +237,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInElseReadInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInElseTwiceReadInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -374,7 +260,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInElseTwiceReadInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInOneIfandInAnotherElseInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -400,7 +286,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInOneIfandInAnotherElseInLoop)
  */
 TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -430,7 +316,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond
  */
 TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {1}, {}},
@@ -458,7 +344,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond
  */
 TEST_F(LifetimeEvaluatorExactTest, ReadInIfInLoopBeforeWrite)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -479,7 +365,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInIfInLoopBeforeWrite)
  */
 TEST_F(LifetimeEvaluatorExactTest, ReadInLoopInIfBeforeWriteAndLifeToTheEnd)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MUL, {1}, {1,in1}, {}},
@@ -498,7 +384,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopInIfBeforeWriteAndLifeToTheEnd)
  */
 TEST_F(LifetimeEvaluatorExactTest, ReadInLoopBeforeWriteAndLifeToTheEnd)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_MUL, {1}, {1,in1}, {}},
       {   TGSI_OPCODE_UADD, {1}, {1,in1}, {}},
@@ -516,7 +402,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopBeforeWriteAndLifeToTheEnd)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -545,7 +431,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
  */
 TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -580,7 +466,7 @@ TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved)
  */
 TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -612,7 +498,7 @@ TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved2)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -635,7 +521,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopWithReadResolvedInOuterScope)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -658,7 +544,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopWithReadResolvedInOuterScop
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -684,7 +570,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope2)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteParentIfOutsideLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_IF, {}, {in0}, {}},
       {   TGSI_OPCODE_BGNLOOP },
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -714,7 +600,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteParentIfOutsideLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopWriteNotAlways)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -740,7 +626,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopWriteNotAlways)
  */
 TEST_F(LifetimeEvaluatorExactTest, IfElseWriteInLoopAlsoReadInElse)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -762,7 +648,7 @@ TEST_F(LifetimeEvaluatorExactTest, IfElseWriteInLoopAlsoReadInElse)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInNestedIfElseOuterElseOnly)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {   TGSI_OPCODE_ELSE},
@@ -787,7 +673,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInNestedIfElseOuterElseOnly)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteUnconditionallyReadInNestedElse)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -812,7 +698,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteUnconditionallyReadInNestedElse)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerElseInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -840,7 +726,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerElseInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerIfInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -868,7 +754,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerIfInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInOneElseBranchReadFirstInOtherInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -893,7 +779,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInOneElseBranchReadFirstInOtherInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInIfElseBranchSecondIfInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -914,7 +800,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfElseBranchSecondIfInLoop)
 /* A continue in the loop is not relevant */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterContinue)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_CONT},
@@ -934,7 +820,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterContinue)
  */
 TEST_F(LifetimeEvaluatorExactTest, UseSwitchCase)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {2}, {in1}, {}},
       { TGSI_OPCODE_MOV, {3}, {in2}, {}},
@@ -954,7 +840,7 @@ TEST_F(LifetimeEvaluatorExactTest, UseSwitchCase)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteTwoOnlyUseOne)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_DFRACEXP , {1,2}, {in0}, {}},
       { TGSI_OPCODE_ADD , {3}, {2,in0}, {}},
       { TGSI_OPCODE_MOV, {out1}, {3}, {}},
@@ -970,7 +856,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteTwoOnlyUseOne)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BRK},
@@ -989,7 +875,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak2Breaks)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BRK},
@@ -1012,7 +898,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak2Breaks)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAndReadAfterBreak)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BRK},
@@ -1031,7 +917,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAndReadAfterBreak)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAndReadAfterBreak)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_IF, {}, {in1}, {}},
       {     TGSI_OPCODE_BRK},
@@ -1058,7 +944,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAndReadAfterBreak)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreakInSwitchInLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_SWITCH, {}, {in1}, {}},
       {  TGSI_OPCODE_CASE, {}, {in1}, {}},
       {   TGSI_OPCODE_BGNLOOP },
@@ -1081,7 +967,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreakInSwitchInLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesConditionalWrite)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {  TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_MOV, {1}, {in0}, {}},
@@ -1100,7 +986,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesConditionalWrite)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesFirstReadBeforeWrite)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_MUL, {1}, {1,in0}, {}},
       { TGSI_OPCODE_ENDLOOP },
@@ -1118,7 +1004,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesFirstReadBeforeWrite)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteInSwitch)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {} },
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1139,7 +1025,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteInSwitch)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCase)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {} },
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1160,7 +1046,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCase)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCaseFallThrough)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {} },
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1181,7 +1067,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCaseFallThr
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteSelectFromSelf)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_USEQ, {5}, {in0,in1}, {}},
       { TGSI_OPCODE_UCMP, {1}, {5,in1,1}, {}},
       { TGSI_OPCODE_UCMP, {1}, {5,in1,1}, {}},
@@ -1206,7 +1092,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteSelectFromSelf)
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopRWInSwitchCaseLastCaseWithoutBreak)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {} },
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1224,7 +1110,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopRWInSwitchCaseLastCaseWithoutBreak)
 /* Value read/write in same case, stays there */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchSameCase)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {} },
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1245,7 +1131,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchSameCase)
  */
 TEST_F(LifetimeEvaluatorAtLeastTest, LoopWithReadWriteInSwitchSameCase)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_SWITCH, {}, {in0}, {}},
       {    TGSI_OPCODE_CASE, {}, {in0}, {} },
@@ -1265,7 +1151,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, LoopWithReadWriteInSwitchSameCase)
 /* First read before first write with nested loops */
 TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferentScopesCondReadBeforeWrite)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
       {    TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -1287,7 +1173,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferentScopesCondReadBeforeWrite)
  */
 TEST_F(LifetimeEvaluatorExactTest, FirstWriteAtferReadInNestedLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
@@ -1302,26 +1188,21 @@ TEST_F(LifetimeEvaluatorExactTest, FirstWriteAtferReadInNestedLoop)
    run (code, expectation({{-1,-1}, {0,7}, {1,7}, {4,8}}));
 }
 
-
-#define DST(X, W) vector<pair<int,int>>(1, make_pair(X, W))
-#define SRC(X, S) vector<pair<int, const char *>>(1, make_pair(X, S))
-#define SRC2(X, S, Y, T) vector<pair<int, const char *>>({make_pair(X, S), make_pair(Y, T)})
-
 /* Partial write to components: one component was written unconditionally
  * but another conditionally, temporary must survive the whole loop.
  * Test series for all components.
  */
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "x"), {}, SWZ()},
-      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
-      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_Y)}, {MP(in1, "x")}, {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, {MP(in0, "xxxx")}, {}, SWZ()},
+      {     TGSI_OPCODE_MOV, {MP(1, WRITEMASK_X)}, {MP(in1, "y")}, {}, SWZ()},
       {   TGSI_OPCODE_ENDIF},
-      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(2, WRITEMASK_XY)}, {MP(1, "xy")}, {}, SWZ()},
       { TGSI_OPCODE_ENDLOOP},
-      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
@@ -1329,15 +1210,15 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X)
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Y)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
-      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
-      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_Y), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_X)}, {MP(in1, "x")}, {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, {MP(in0, "xxxx")}, {}, SWZ()},
+      {     TGSI_OPCODE_MOV, {MP(1, WRITEMASK_Y)}, {MP(in1, "y")}, {}, SWZ()},
       {   TGSI_OPCODE_ENDIF},
-      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xy"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(2, WRITEMASK_XY)}, {MP(1, "xy")}, {}, SWZ()},
       { TGSI_OPCODE_ENDLOOP},
-      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
@@ -1345,15 +1226,15 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Y)
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Z)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
-      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
-      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_Z), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_X)}, {MP(in1, "x")}, {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, {MP(in0, "xxxx")}, {}, SWZ()},
+      {     TGSI_OPCODE_MOV, {MP(1, WRITEMASK_Z)}, {MP(in1, "y")}, {}, SWZ()},
       {   TGSI_OPCODE_ENDIF},
-      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xz"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(2, WRITEMASK_XY)}, {MP(1, "xz")}, {}, SWZ()},
       { TGSI_OPCODE_ENDLOOP},
-      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
@@ -1361,15 +1242,15 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Z)
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_W)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
-      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
-      {     TGSI_OPCODE_MOV, DST(1, WRITEMASK_W), SRC(in1, "y"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_X)}, {MP(in1, "x")}, {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, {MP(in0, "xxxx")}, {}, SWZ()},
+      {     TGSI_OPCODE_MOV, {MP(1, WRITEMASK_W)}, {MP(in1, "y")}, {}, SWZ()},
       {   TGSI_OPCODE_ENDIF},
-      {   TGSI_OPCODE_MOV, DST(2, WRITEMASK_XY), SRC(1, "xw"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(2, WRITEMASK_XY)}, {MP(1, "xw")}, {}, SWZ()},
       { TGSI_OPCODE_ENDLOOP},
-      { TGSI_OPCODE_MOV, DST(out0, WRITEMASK_XYZW), SRC(2, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
@@ -1377,16 +1258,16 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_W)
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X_Read_Y_Before)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_X), SRC(in1, "x"), {}, SWZ()},
-      {   TGSI_OPCODE_IF, {}, SRC(in0, "xxxx"), {}, SWZ()},
-      {     TGSI_OPCODE_MOV, DST(2, WRITEMASK_XYZW), SRC(1, "yyyy"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_X)}, {MP(in1, "x")}, {}, SWZ()},
+      {   TGSI_OPCODE_IF, {}, {MP(in0, "xxxx")}, {}, SWZ()},
+      {     TGSI_OPCODE_MOV, {MP(2, WRITEMASK_XYZW)}, {MP(1, "yyyy")}, {}, SWZ()},
       {   TGSI_OPCODE_ENDIF},
-      {   TGSI_OPCODE_MOV, DST(1, WRITEMASK_YZW), SRC(2, "yyzw"), {}, SWZ()},
+      {   TGSI_OPCODE_MOV, {MP(1, WRITEMASK_YZW)}, {MP(2, "yyzw")}, {}, SWZ()},
       { TGSI_OPCODE_ENDLOOP},
-      { TGSI_OPCODE_ADD, DST(out0, WRITEMASK_XYZW),
-                         SRC2(2, "yyzw", 1, "xyxy"), {}, SWZ()},
+      { TGSI_OPCODE_ADD, {MP(out0, WRITEMASK_XYZW)},
+                         {MP(2, "yyzw"), MP(1, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
    run (code, expectation({{-1,-1}, {0,7}, {0,7}}));
@@ -1397,7 +1278,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X_Read_Y_Be
  */
 TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionInLoopAndCondition)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
       {     TGSI_OPCODE_IF, {}, {in0}, {} },
@@ -1418,7 +1299,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionInLoopAndCondition)
  */
 TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstruction)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_ADD, {1}, {1,in0}, {}},
       { TGSI_OPCODE_END},
 
@@ -1432,7 +1313,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstruction)
  */
 TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionMoreThenOnce)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_ADD, {1}, {1,in0}, {}},
       { TGSI_OPCODE_ADD, {1}, {1,in0}, {}},
       { TGSI_OPCODE_MOV, {out0}, {in0}, {}},
@@ -1448,7 +1329,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionMoreThenOnce)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteOnly)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_END}
    };
@@ -1459,7 +1340,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteOnly)
  */
 TEST_F(LifetimeEvaluatorExactTest, SimpleReadForIf)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_ADD, {out0}, {in0,in1}, {}},
       { TGSI_OPCODE_IF, {}, {1}, {}},
@@ -1470,7 +1351,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleReadForIf)
 
 TEST_F(LifetimeEvaluatorExactTest, WriteTwoReadOne)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_DFRACEXP , {1,2}, {in0}, {}},
       { TGSI_OPCODE_ADD , {3}, {2,in0}, {}},
       { TGSI_OPCODE_MOV, {out1}, {3}, {}},
@@ -1481,7 +1362,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteTwoReadOne)
 
 TEST_F(LifetimeEvaluatorExactTest, ReadOnly)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END},
    };
@@ -1492,7 +1373,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadOnly)
 */
 TEST_F(LifetimeEvaluatorExactTest, SomeScopesAndNoEndProgramId)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_IF, {}, {1}, {}},
       { TGSI_OPCODE_MOV, {2}, {1}, {}},
@@ -1506,7 +1387,7 @@ TEST_F(LifetimeEvaluatorExactTest, SomeScopesAndNoEndProgramId)
 
 TEST_F(LifetimeEvaluatorExactTest, SerialReadWrite)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {2}, {1}, {}},
       { TGSI_OPCODE_MOV, {3}, {2}, {}},
@@ -1519,7 +1400,7 @@ TEST_F(LifetimeEvaluatorExactTest, SerialReadWrite)
 /* Check that two destination registers are used */
 TEST_F(LifetimeEvaluatorExactTest, TwoDestRegisters)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_DFRACEXP , {1,2}, {in0}, {}},
       { TGSI_OPCODE_ADD, {out0}, {1,2}, {}},
       { TGSI_OPCODE_END}
@@ -1532,7 +1413,7 @@ TEST_F(LifetimeEvaluatorExactTest, TwoDestRegisters)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInConditionalReadOutside)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BGNLOOP},
@@ -1553,7 +1434,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInConditionalReadOutside)
 */
 TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInCondReadInCondOutsideLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BGNLOOP},
@@ -1573,7 +1454,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInCondReadInCondOutsideLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, ReadWriteInLoopInCondReadInCondOutsideLoop)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP},
       {   TGSI_OPCODE_IF, {}, {in0}, {}},
       {     TGSI_OPCODE_BGNLOOP},
@@ -1596,7 +1477,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadWriteInLoopInCondReadInCondOutsideLoop)
  */
 TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {2}, {in0}, {}},
       { TGSI_OPCODE_ADD, {3}, {1,2}, {}},
@@ -1610,7 +1491,7 @@ TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead2)
 /* Check that three source registers are used */
 TEST_F(LifetimeEvaluatorExactTest, ThreeSourceRegisters)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_DFRACEXP , {1,2}, {in0}, {}},
       { TGSI_OPCODE_ADD , {3}, {in0,in1}, {}},
       { TGSI_OPCODE_MAD, {out0}, {1,2,3}, {}},
@@ -1622,7 +1503,7 @@ TEST_F(LifetimeEvaluatorExactTest, ThreeSourceRegisters)
 /* Check minimal lifetime for registers only written to */
 TEST_F(LifetimeEvaluatorExactTest, OverwriteWrittenOnlyTemps)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in0}, {}},
       { TGSI_OPCODE_MOV , {2}, {in1}, {}},
       { TGSI_OPCODE_END}
@@ -1636,7 +1517,7 @@ TEST_F(LifetimeEvaluatorExactTest, OverwriteWrittenOnlyTemps)
  */
 TEST_F(LifetimeEvaluatorExactTest, WriteOnlyTwiceSame)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_END}
@@ -1653,7 +1534,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteOnlyTwiceSame)
  */
 TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_MOV, {2}, {1}, {}},
       { TGSI_OPCODE_MOV, {1}, {2}, {}},
@@ -1669,7 +1550,7 @@ TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead)
  */
 TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAfterBreak)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_BGNLOOP },
       {   TGSI_OPCODE_BGNLOOP },
       {     TGSI_OPCODE_IF, {}, {in0}, {}},
@@ -1684,8 +1565,6 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAfterBreak)
    run (code, expectation({{-1,-1}, {0,8}}));
 }
 
-
-#define MT(X,Y,Z) std::make_tuple(X,Y,Z)
 /* Check lifetime estimation with a relative addressing in src.
  * Note, since the lifetime estimation always extends the lifetime
  * at to at least one instruction after the last write, for the
@@ -1695,7 +1574,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAfterBreak)
 
 TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr1)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV, {1}, {in1}, {}},
       { TGSI_OPCODE_MOV, {2}, {in0}, {}},
       { TGSI_OPCODE_MOV, {MT(3,0,0)}, {MT(2,1,0)}, {}, RA()},
@@ -1708,7 +1587,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr1)
 /* Check lifetime estimation with a relative addressing in src */
 TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in1}, {}},
       { TGSI_OPCODE_MOV , {2}, {in0}, {}},
       { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(4,0,1)}, {}, RA()},
@@ -1721,7 +1600,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr2)
 /* Check lifetime estimation with a relative addressing in src */
 TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr1)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in1}, {}},
       { TGSI_OPCODE_MOV , {2}, {in0}, {}},
       { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(in2,0,0)}, {MT(5,1,0)}, RA()},
@@ -1734,7 +1613,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr1)
 /* Check lifetime estimation with a relative addressing in src */
 TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in1}, {}},
       { TGSI_OPCODE_MOV , {2}, {in0}, {}},
       { TGSI_OPCODE_MOV , {MT(3,0,0)}, {MT(in2,0,0)}, {MT(2,0,1)}, RA()},
@@ -1747,7 +1626,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr2)
 /* Check lifetime estimation with a relative addressing in dst */
 TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr1)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in0}, {}},
       { TGSI_OPCODE_MOV , {1}, {in1}, {}},
       { TGSI_OPCODE_MOV , {MT(5,1,0)}, {MT(in1,0,0)}, {}, RA()},
@@ -1759,7 +1638,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr1)
 /* Check lifetime estimation with a relative addressing in dst */
 TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_MOV , {1}, {in0}, {}},
       { TGSI_OPCODE_MOV , {2}, {in1}, {}},
       { TGSI_OPCODE_MOV , {MT(5,0,1)}, {MT(in1,0,0)}, {}, RA()},
@@ -1841,7 +1720,7 @@ TEST_F(RegisterRemappingTest, RegisterRemappingMergeZeroLifetimeRegisters)
 
 TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemapping)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_USEQ, {5}, {in0,in1}, {}},
       { TGSI_OPCODE_UCMP, {1}, {5,in1,1}, {}},
       { TGSI_OPCODE_UCMP, {1}, {5,in1,1}, {}},
@@ -1863,7 +1742,7 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemapping)
 
 TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyIgnored)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_USEQ, {1}, {in0,in1}, {}},
       { TGSI_OPCODE_UCMP, {2}, {1,in1,2}, {}},
       { TGSI_OPCODE_UCMP, {4}, {2,in1,1}, {}},
@@ -1880,7 +1759,7 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyI
 
 TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyRemappedTo)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_USEQ, {1}, {in0,in1}, {}},
       { TGSI_OPCODE_UIF, {}, {7}, {}},
       {   TGSI_OPCODE_UCMP, {2}, {1,in1,2}, {}},
@@ -1897,7 +1776,7 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyR
 
 TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyRemapped)
 {
-   const vector<MockCodeline> code = {
+   const vector<FakeCodeline> code = {
       { TGSI_OPCODE_USEQ, {0}, {in0,in1}, {}},
       { TGSI_OPCODE_UCMP, {2}, {0,in1,2}, {}},
       { TGSI_OPCODE_UCMP, {4}, {2,in1,0}, {}},
@@ -1912,347 +1791,3 @@ TEST_F(RegisterLifetimeAndRemappingTest, LifetimeAndRemappingWithUnusedReadOnlyR
    run (code, vector<int>({0,1,2,3,0,2,6,7,0}));
 }
 
-/* Implementation of helper and test classes */
-void *MockCodeline::mem_ctx = nullptr;
-
-MockCodeline::MockCodeline(unsigned _op, const vector<int>& _dst,
-                           const vector<int>& _src, const vector<int>&_to):
-   op(_op),
-   max_temp_id(0)
-{
-   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
-             [this](int i) { return create_dst_register(i);});
-
-   transform(_src.begin(), _src.end(), std::back_inserter(src),
-             [this](int i) { return create_src_register(i);});
-
-   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
-             [this](int i) { return create_src_register(i);});
-
-}
-
-MockCodeline::MockCodeline(unsigned _op, const vector<pair<int,int>>& _dst,
-                           const vector<pair<int, const char *>>& _src,
-                           const vector<pair<int, const char *>>&_to,
-                           SWZ with_swizzle):
-   op(_op),
-   max_temp_id(0)
-{
-   (void)with_swizzle;
-
-   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
-             [this](pair<int,int> r) {
-      return create_dst_register(r.first, r.second);
-   });
-
-   transform(_src.begin(), _src.end(), std::back_inserter(src),
-             [this](const pair<int,const char *>& r) {
-      return create_src_register(r.first, r.second);
-   });
-
-   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
-             [this](const pair<int,const char *>& r) {
-      return create_src_register(r.first, r.second);
-   });
-}
-
-MockCodeline::MockCodeline(unsigned _op, const vector<tuple<int,int,int>>& _dst,
-                           const vector<tuple<int,int,int>>& _src,
-                           const vector<tuple<int,int,int>>&_to, RA with_reladdr):
-   op(_op),
-   max_temp_id(0)
-{
-   (void)with_reladdr;
-
-   transform(_dst.begin(), _dst.end(), std::back_inserter(dst),
-             [this](const tuple<int,int,int>& r) {
-      return create_dst_register(r);
-   });
-
-   transform(_src.begin(), _src.end(), std::back_inserter(src),
-             [this](const tuple<int,int,int>& r) {
-      return create_src_register(r);
-   });
-
-   transform(_to.begin(), _to.end(), std::back_inserter(tex_offsets),
-             [this](const tuple<int,int,int>& r) {
-      return create_src_register(r);
-   });
-}
-
-st_src_reg MockCodeline::create_src_register(int src_idx)
-{
-   return create_src_register(src_idx,
-                              src_idx < 0 ? PROGRAM_INPUT : PROGRAM_TEMPORARY);
-}
-
-st_src_reg MockCodeline::create_src_register(int src_idx, const char *sw)
-{
-   st_src_reg result = create_src_register(src_idx);
-
-   for (int i = 0; i < 4; ++i) {
-      switch (sw[i]) {
-      case 'x': break; /* is zero */
-      case 'y': result.swizzle |= SWIZZLE_Y << 3 * i; break;
-      case 'z': result.swizzle |= SWIZZLE_Z << 3 * i; break;
-      case 'w': result.swizzle |= SWIZZLE_W << 3 * i; break;
-      }
-   }
-
-   return result;
-}
-
-st_src_reg MockCodeline::create_src_register(int src_idx, gl_register_file file)
-{
-   st_src_reg retval;
-   retval.file = file;
-   retval.index = src_idx >= 0 ? src_idx  : 1 - src_idx;
-
-   if (file == PROGRAM_TEMPORARY) {
-      if (max_temp_id < src_idx)
-         max_temp_id = src_idx;
-   } else if (file == PROGRAM_ARRAY) {
-      retval.array_id = 1;
-   }
-   retval.swizzle = SWIZZLE_XYZW;
-   retval.type = GLSL_TYPE_INT;
-
-   return retval;
-}
-
-st_src_reg *MockCodeline::create_rel_src_register(int idx)
-{
-   st_src_reg *retval = ralloc(mem_ctx, st_src_reg);
-   *retval = st_src_reg(PROGRAM_TEMPORARY, idx, GLSL_TYPE_INT);
-   if (max_temp_id < idx)
-      max_temp_id = idx;
-   return retval;
-}
-
-st_src_reg MockCodeline::create_src_register(const tuple<int,int,int>& src)
-{
-   int src_idx = std::get<0>(src);
-   int relidx1 = std::get<1>(src);
-   int relidx2 = std::get<2>(src);
-
-   gl_register_file file = PROGRAM_TEMPORARY;
-   if (src_idx < 0)
-      file = PROGRAM_OUTPUT;
-   else if (relidx1 || relidx2) {
-      file = PROGRAM_ARRAY;
-   }
-
-   st_src_reg retval = create_src_register(src_idx, file);
-   if (src_idx >= 0) {
-      if (relidx1 || relidx2) {
-         retval.array_id = 1;
-         if (relidx1)
-            retval.reladdr = create_rel_src_register(relidx1);
-         if (relidx2) {
-            retval.reladdr2 = create_rel_src_register(relidx2);
-            retval.has_index2 = true;
-            retval.index2D = 10;
-         }
-      }
-   }
-   return retval;
-}
-
-st_dst_reg MockCodeline::create_dst_register(int dst_idx,int writemask)
-{
-   gl_register_file file;
-   int idx = 0;
-   if (dst_idx >= 0) {
-      file = PROGRAM_TEMPORARY;
-      idx = dst_idx;
-      if (max_temp_id < idx)
-         max_temp_id = idx;
-   } else {
-      file = PROGRAM_OUTPUT;
-      idx = 1 - dst_idx;
-   }
-   return st_dst_reg(file, writemask, GLSL_TYPE_INT, idx);
-}
-
-st_dst_reg MockCodeline::create_dst_register(int dst_idx)
-{
-   return create_dst_register(dst_idx, dst_idx < 0 ?
-                                 PROGRAM_OUTPUT : PROGRAM_TEMPORARY);
-}
-
-st_dst_reg MockCodeline::create_dst_register(int dst_idx, gl_register_file file)
-{
-   st_dst_reg retval;
-   retval.file = file;
-   retval.index = dst_idx >= 0 ? dst_idx  : 1 - dst_idx;
-
-   if (file == PROGRAM_TEMPORARY) {
-      if (max_temp_id < dst_idx)
-         max_temp_id = dst_idx;
-   } else if (file == PROGRAM_ARRAY) {
-      retval.array_id = 1;
-   }
-   retval.writemask = 0xF;
-   retval.type = GLSL_TYPE_INT;
-
-   return retval;
-}
-
-st_dst_reg MockCodeline::create_dst_register(const tuple<int,int,int>& dst)
-{
-   int dst_idx = std::get<0>(dst);
-   int relidx1 = std::get<1>(dst);
-   int relidx2 = std::get<2>(dst);
-
-   gl_register_file file = PROGRAM_TEMPORARY;
-   if (dst_idx < 0)
-      file = PROGRAM_OUTPUT;
-   else if (relidx1 || relidx2) {
-      file = PROGRAM_ARRAY;
-   }
-   st_dst_reg retval = create_dst_register(dst_idx, file);
-
-   if (relidx1 || relidx2) {
-      if (relidx1)
-         retval.reladdr = create_rel_src_register(relidx1);
-      if (relidx2) {
-         retval.reladdr2 = create_rel_src_register(relidx2);
-         retval.has_index2 = true;
-         retval.index2D = 10;
-      }
-   }
-   return retval;
-}
-
-glsl_to_tgsi_instruction *MockCodeline::get_codeline() const
-{
-   glsl_to_tgsi_instruction *next_instr = new(mem_ctx) glsl_to_tgsi_instruction();
-   next_instr->op = op;
-   next_instr->info = tgsi_get_opcode_info(op);
-
-   assert(src.size() == num_inst_src_regs(next_instr));
-   assert(dst.size() == num_inst_dst_regs(next_instr));
-   assert(tex_offsets.size() < 3);
-
-   copy(src.begin(), src.end(), next_instr->src);
-   copy(dst.begin(), dst.end(), next_instr->dst);
-
-   next_instr->tex_offset_num_offset = tex_offsets.size();
-
-   if (next_instr->tex_offset_num_offset > 0) {
-      next_instr->tex_offsets = ralloc_array(mem_ctx, st_src_reg, tex_offsets.size());
-      copy(tex_offsets.begin(), tex_offsets.end(), next_instr->tex_offsets);
-   } else {
-      next_instr->tex_offsets = nullptr;
-   }
-   return next_instr;
-}
-
-void MockCodeline::set_mem_ctx(void *ctx)
-{
-   mem_ctx = ctx;
-}
-
-
-MockShader::MockShader(const vector<MockCodeline>& source, void *ctx):
-   num_temps(0)
-{
-   program = new(ctx) exec_list();
-
-   for (const MockCodeline& i: source) {
-      program->push_tail(i.get_codeline());
-      int t = i.get_max_reg_id();
-      if (t > num_temps)
-         num_temps = t;
-   }
-
-   ++num_temps;
-}
-
-int MockShader::get_num_temps() const
-{
-   return num_temps;
-}
-
-exec_list* MockShader::get_program() const
-{
-   return program;
-}
-
-void MesaTestWithMemCtx::SetUp()
-{
-   mem_ctx = ralloc_context(nullptr);
-   MockCodeline::set_mem_ctx(mem_ctx);
-}
-
-void MesaTestWithMemCtx::TearDown()
-{
-   ralloc_free(mem_ctx);
-   MockCodeline::set_mem_ctx(nullptr);
-   mem_ctx = nullptr;
-}
-
-void LifetimeEvaluatorTest::run(const vector<MockCodeline>& code, const expectation& e)
-{
-   MockShader shader(code, mem_ctx);
-   std::vector<lifetime> result(shader.get_num_temps());
-
-   bool success =
-         get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
-                                               shader.get_num_temps(), &result[0]);
-
-   ASSERT_TRUE(success);
-   ASSERT_EQ(result.size(), e.size());
-   check(result, e);
-}
-
-void LifetimeEvaluatorExactTest::check( const vector<lifetime>& lifetimes,
-                                        const expectation& e)
-{
-   for (unsigned i = 1; i < lifetimes.size(); ++i) {
-      EXPECT_EQ(lifetimes[i].begin, e[i][0]);
-      EXPECT_EQ(lifetimes[i].end, e[i][1]);
-   }
-}
-
-void LifetimeEvaluatorAtLeastTest::check( const vector<lifetime>& lifetimes,
-                                          const expectation& e)
-{
-   for (unsigned i = 1; i < lifetimes.size(); ++i) {
-      EXPECT_LE(lifetimes[i].begin, e[i][0]);
-      EXPECT_GE(lifetimes[i].end, e[i][1]);
-   }
-}
-
-void RegisterRemappingTest::run(const vector<lifetime>& lt,
-                            const vector<int>& expect)
-{
-   rename_reg_pair proto{false,0};
-   vector<rename_reg_pair> result(lt.size(), proto);
-
-   get_temp_registers_remapping(mem_ctx, lt.size(), &lt[0], &result[0]);
-
-   vector<int> remap(lt.size());
-   for (unsigned i = 0; i < lt.size(); ++i) {
-      remap[i] = result[i].valid ? result[i].new_reg : i;
-   }
-
-   std::transform(remap.begin(), remap.end(), result.begin(), remap.begin(),
-                  [](int x, const rename_reg_pair& rn) {
-                     return rn.valid ? rn.new_reg : x;
-                  });
-
-   for(unsigned i = 1; i < remap.size(); ++i) {
-      EXPECT_EQ(remap[i], expect[i]);
-   }
-}
-
-void RegisterLifetimeAndRemappingTest::run(const vector<MockCodeline>& code,
-                                           const vector<int>& expect)
-{
-     MockShader shader(code, mem_ctx);
-     std::vector<lifetime> lt(shader.get_num_temps());
-     get_temp_registers_required_lifetimes(mem_ctx, shader.get_program(),
-                                           shader.get_num_temps(), &lt[0]);
-     this->run(lt, expect);
-}

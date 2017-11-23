@@ -46,7 +46,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAdd)
       { TGSI_OPCODE_UADD, {out0}, {1,in0}, {}},
       { TGSI_OPCODE_END}
    };
-   run(code, expectation({{-1,-1}, {0,1}}));
+   run(code, temp_lt_expect({{-1,-1}, {0,1}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAddMove)
@@ -57,12 +57,12 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveAddMove)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run(code, expectation({{-1, -1}, {0,1}, {1,2}}));
+   run(code, temp_lt_expect({{-1, -1}, {0,1}, {1,2}}));
 }
 
 /* Test whether the texoffst are actually visited by the
  * merge algorithm. Note that it is of no importance
- * what instruction is actually used, the MockShader class
+ * what instruction is actually used, the FakeShader class
  * does not consider the details of the operation, only
  * the number of arguments is of importance.
  */
@@ -74,7 +74,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleOpWithTexoffset)
       { TGSI_OPCODE_TEX, {out0}, {in0}, {1,2}},
       { TGSI_OPCODE_END}
    };
-   run(code, expectation({{-1, -1}, {0,2}, {1,2}}));
+   run(code, temp_lt_expect({{-1, -1}, {0,2}, {1,2}}));
 }
 
 /* Simple register access involving a loop
@@ -94,7 +94,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleMoveInLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,5}, {2,3}, {3,6}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,5}, {2,3}, {3,6}}));
 }
 
 /* In loop if/else value written only in one path, and read later
@@ -114,7 +114,7 @@ TEST_F(LifetimeEvaluatorExactTest, MoveInIfInLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {1,7}, {5,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {1,7}, {5,8}}));
 }
 
 /* A non-dominant write within an IF can be ignored (if it is read
@@ -136,7 +136,7 @@ TEST_F(LifetimeEvaluatorExactTest, NonDominantWriteinIfInLoop)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {1,5}, {5,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {1,5}, {5,10}}));
 }
 
 /* In Nested loop if/else value written only in one path, and read later
@@ -157,7 +157,7 @@ TEST_F(LifetimeEvaluatorExactTest, MoveInIfInNestedLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,8}, {1,8}, {6,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,8}, {1,8}, {6,9}}));
 }
 
 /* In loop if/else value written in both path, and read later
@@ -180,7 +180,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseInLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}, {3,7}, {7,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}, {3,7}, {7,10}}));
 }
 
 /* Test that read before write in ELSE path is properly tracked:
@@ -203,7 +203,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfAndElseReadInElseInLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}, {1,9}, {7,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}, {1,9}, {7,10}}));
 }
 
 
@@ -226,7 +226,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInElseReadInLoop)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}, {1,8}, {1,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}, {1,8}, {1,8}}));
 }
 
 /* Test that tracking a second write in an ELSE path is not attributed
@@ -249,7 +249,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInElseTwiceReadInLoop)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,10}, {1,9}, {1,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,10}, {1,9}, {1,9}}));
 }
 
 /* Test that the IF and ELSE scopes from different IF/ELSE pairs are not
@@ -273,7 +273,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInOneIfandInAnotherElseInLoop)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,11}, {1,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,11}, {1,10}}));
 }
 
 /* Test that with a new loop the resolution of the IF/ELSE write conditionality
@@ -302,7 +302,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,14}, {3,13}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,14}, {3,13}}));
 }
 
 /* Test that with a new loop the resolution of the IF/ELSE write conditionality
@@ -334,7 +334,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, UnconditionalInFirstLoopConditionalInSecond
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,16}, {3,15}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,16}, {3,15}}));
 }
 
 /* In loop if/else read in one path before written in the same loop
@@ -354,7 +354,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInIfInLoopBeforeWrite)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {1,7}, {1,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {1,7}, {1,8}}));
 }
 
 /* In loop if/else read in one path before written in the same loop
@@ -373,7 +373,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopInIfBeforeWriteAndLifeToTheEnd)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}}));
 }
 
 /* In loop read before written in the same loop read after the loop,
@@ -390,7 +390,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadInLoopBeforeWriteAndLifeToTheEnd)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,4}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,4}}));
 }
 
 /* Test whether nesting IF/ELSE pairs within a loop is resolved:
@@ -419,7 +419,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteButNotPropagated)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {3,14}}));
+   run (code, temp_lt_expect({{-1,-1}, {3,14}}));
 }
 
 /* Test that nested chaining of IF/ELSE scopes is resolved:
@@ -453,7 +453,7 @@ TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,18}, {18, 20}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,18}, {18, 20}}));
 }
 
 /* The complementary case of the above: Open deeply nested IF/ELSE clauses
@@ -488,7 +488,7 @@ TEST_F(LifetimeEvaluatorExactTest, DeeplyNestedIfElseInLoopResolved2)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {5,18}, {18, 20}}));
+   run (code, temp_lt_expect({{-1,-1}, {5,18}, {18, 20}}));
 }
 
 /* Test that a write in an IF scope within IF scope where the temporary already
@@ -511,7 +511,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,9}, {9, 11}}));
 }
 
 /* Here the read before write in the nested if is of no consequence to the
@@ -534,7 +534,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopWithReadResolvedInOuterScop
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,9}, {9, 11}}));
 }
 
 /* Here the nested if condition is of no consequence to the life time
@@ -557,7 +557,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfElseInLoopResolvedInOuterScope2)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,9}, {9, 11}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,9}, {9, 11}}));
 }
 
 /* Test that tracking of IF/ELSE scopes does not unnessesarily cross loops,
@@ -590,7 +590,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopAlwaysWriteParentIfOutsideLoop)
 
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {3,12}, {12, 17}}));
+   run (code, temp_lt_expect({{-1,-1}, {3,12}, {12, 17}}));
 }
 
 /* The value is written in a loop and in a nested IF, but
@@ -615,7 +615,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfInLoopWriteNotAlways)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,13}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,13}}));
 }
 
 /* Test that reading in an ELSE branach after writing is ignored:
@@ -636,7 +636,7 @@ TEST_F(LifetimeEvaluatorExactTest, IfElseWriteInLoopAlsoReadInElse)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,7}}));
 }
 
 /* Test that a write in an inner IF/ELSE pair is propagated to the outer
@@ -660,7 +660,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInNestedIfElseOuterElseOnly)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,10}}));
 }
 
 /* Test that reads in an inner ELSE after write within the enclosing IF branch
@@ -686,7 +686,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteUnconditionallyReadInNestedElse)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,10}}));
 }
 
 
@@ -715,7 +715,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerElseInLoop)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,15}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,15}}));
 }
 
 /* Test that read before write is properly tracked for nested IF branches.
@@ -743,7 +743,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedIfelseReadFirstInInnerIfInLoop)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,15}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,15}}));
 }
 
 /* Same as above, but for the secondary ELSE branch:
@@ -768,7 +768,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInOneElseBranchReadFirstInOtherInLoop)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,11}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,11}}));
 }
 
 /* Test that the "write is unconditional" resolution is not overwritten within
@@ -791,7 +791,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInIfElseBranchSecondIfInLoop)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,9}}));
 }
 
 
@@ -808,7 +808,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterContinue)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {4,6}}));
+   run (code, temp_lt_expect({{-1,-1}, {4,6}}));
 }
 
 /* Temporary used to in case must live up to the case
@@ -830,7 +830,7 @@ TEST_F(LifetimeEvaluatorExactTest, UseSwitchCase)
       { TGSI_OPCODE_ENDSWITCH},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,5}, {1,4}, {2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,5}, {1,4}, {2,3}}));
 }
 
 /* With two destinations, if one result is thrown away, the
@@ -845,7 +845,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteTwoOnlyUseOne)
       { TGSI_OPCODE_END},
 
    };
-   run (code, expectation({{-1,-1}, {0,1}, {0,1}, {1,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}, {0,1}, {1,2}}));
 }
 
 /* If a break is in the loop, all variables written after the
@@ -864,7 +864,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}}));
 }
 
 /* If a break is in the loop, all variables written after the
@@ -884,7 +884,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreak2Breaks)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}}));
 }
 
 /* Loop with a break at the beginning and read/write in the post
@@ -907,7 +907,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAndReadAfterBreak)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {4,5}, {0,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {4,5}, {0,7}}));
 }
 
 /* Same as above, just make sure that the life time of the local variable
@@ -933,7 +933,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAndReadAfterBreak)
       { TGSI_OPCODE_MOV, {out0}, {4}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {8,9}, {0,13}, {11,12}, {0,14}}));
+   run (code, temp_lt_expect({{-1,-1}, {8,9}, {0,13}, {11,12}, {0,14}}));
 }
 
 /* If a break is in the loop inside a switch case, make sure it is
@@ -956,7 +956,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteAfterBreakInSwitchInLoop)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {2,10}}));
+   run (code, temp_lt_expect({{-1,-1}, {2,10}}));
 }
 
 /* Value written conditionally in one loop and read in another loop,
@@ -976,7 +976,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesConditionalWrite)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}}));
 }
 
 /* Value written and read in one loop and last read in another loop,
@@ -993,7 +993,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferntScopesFirstReadBeforeWrite)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,5}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,5}}));
 }
 
 
@@ -1015,7 +1015,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithWriteInSwitch)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}}));
 }
 
 /* Value written in one case, and read in other,in loop
@@ -1036,7 +1036,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCase)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}}));
 }
 
 /* Value written in one case, and read in other,in loop
@@ -1056,7 +1056,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchDifferentCaseFallThr
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,8}}));
 }
 
 /* Here we read and write from an to the same temp in the same instruction,
@@ -1082,7 +1082,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteSelectFromSelf)
       { TGSI_OPCODE_MOV, {out1}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {1,5}, {5,6}, {7,13}, {9,11}, {0,4}}));
+   run (code, temp_lt_expect({{-1,-1}, {1,5}, {5,6}, {7,13}, {9,11}, {0,4}}));
 }
 
 /* This test checks wheter the ENDSWITCH is handled properly if the
@@ -1102,7 +1102,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopRWInSwitchCaseLastCaseWithoutBreak)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,8}}));
 }
 
 /* Value read/write in same case, stays there */
@@ -1121,7 +1121,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithReadWriteInSwitchSameCase)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {3,4}}));
+   run (code, temp_lt_expect({{-1,-1}, {3,4}}));
 }
 
 /* Value read/write in all cases, should only live from first
@@ -1143,7 +1143,7 @@ TEST_F(LifetimeEvaluatorAtLeastTest, LoopWithReadWriteInSwitchSameCase)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {3,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {3,9}}));
 }
 
 /* First read before first write with nested loops */
@@ -1162,7 +1162,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopsWithDifferentScopesCondReadBeforeWrite)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,9}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,9}}));
 }
 
 /* First read before first write wiredness with nested loops.
@@ -1183,7 +1183,7 @@ TEST_F(LifetimeEvaluatorExactTest, FirstWriteAtferReadInNestedLoop)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {1,7}, {4,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {1,7}, {4,8}}));
 }
 
 /* Partial write to components: one component was written unconditionally
@@ -1203,7 +1203,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X)
       { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Y)
@@ -1219,7 +1219,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Y)
       { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Z)
@@ -1235,7 +1235,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_Z)
       { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_W)
@@ -1251,7 +1251,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_W)
       { TGSI_OPCODE_MOV, {MP(out0, WRITEMASK_XYZW)}, {MP(2, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,6}, {5,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,6}, {5,7}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X_Read_Y_Before)
@@ -1268,7 +1268,7 @@ TEST_F(LifetimeEvaluatorExactTest, LoopWithConditionalComponentWrite_X_Read_Y_Be
                          {MP(2, "yyzw"), MP(1, "xyxy")}, {}, SWZ()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {0,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {0,7}}));
 }
 
 /* The variable is conditionally read before first written, so
@@ -1288,7 +1288,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionInLoopAndCondition)
       { TGSI_OPCODE_END},
 
    };
-   run (code, expectation({{-1,-1}, {0,7}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}}));
 }
 
 /* If unconditionally first written and read in the same
@@ -1302,7 +1302,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstruction)
       { TGSI_OPCODE_END},
 
    };
-   run (code, expectation({{-1,-1}, {0,1}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}}));
 }
 
 /* If unconditionally written and read in the same
@@ -1318,7 +1318,7 @@ TEST_F(LifetimeEvaluatorExactTest, FRaWSameInstructionMoreThenOnce)
       { TGSI_OPCODE_END},
 
    };
-   run (code, expectation({{-1,-1}, {0,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}}));
 }
 
 /* Register is only written. This should not happen,
@@ -1331,7 +1331,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteOnly)
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,1}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}}));
 }
 
 /* Register is read in IF.
@@ -1344,7 +1344,7 @@ TEST_F(LifetimeEvaluatorExactTest, SimpleReadForIf)
       { TGSI_OPCODE_IF, {}, {1}, {}},
       { TGSI_OPCODE_ENDIF}
    };
-   run (code, expectation({{-1,-1}, {0,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, WriteTwoReadOne)
@@ -1355,7 +1355,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteTwoReadOne)
       { TGSI_OPCODE_MOV, {out1}, {3}, {}},
       { TGSI_OPCODE_END},
    };
-   run (code, expectation({{-1,-1}, {0,1}, {0,1}, {1,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}, {0,1}, {1,2}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, ReadOnly)
@@ -1364,7 +1364,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadOnly)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END},
    };
-   run (code, expectation({{-1,-1}, {-1,-1}}));
+   run (code, temp_lt_expect({{-1,-1}, {-1,-1}}));
 }
 
 /* Test handling of missing END marker
@@ -1380,7 +1380,7 @@ TEST_F(LifetimeEvaluatorExactTest, SomeScopesAndNoEndProgramId)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_ENDIF},
    };
-   run (code, expectation({{-1,-1}, {0,4}, {2,5}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,4}, {2,5}}));
 }
 
 TEST_F(LifetimeEvaluatorExactTest, SerialReadWrite)
@@ -1392,7 +1392,7 @@ TEST_F(LifetimeEvaluatorExactTest, SerialReadWrite)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END},
    };
-   run (code, expectation({{-1,-1}, {0,1}, {1,2}, {2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}, {1,2}, {2,3}}));
 }
 
 /* Check that two destination registers are used */
@@ -1403,7 +1403,7 @@ TEST_F(LifetimeEvaluatorExactTest, TwoDestRegisters)
       { TGSI_OPCODE_ADD, {out0}, {1,2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,1}, {0,1}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}, {0,1}}));
 }
 
 /* Check that writing within a loop in a conditional is propagated
@@ -1423,7 +1423,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInConditionalReadOutside)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {6,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {6,8}}));
 }
 
 /* Check that a register written in a loop that is inside a conditional
@@ -1444,7 +1444,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteInLoopInCondReadInCondOutsideLoop)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {3,5}, {0,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {3,5}, {0,8}}));
 }
 
 /* Check that a register read before written in a loop that is
@@ -1464,7 +1464,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadWriteInLoopInCondReadInCondOutsideLoop)
       { TGSI_OPCODE_MOV, {out0}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,7}, {0,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,7}, {0,8}}));
 }
 
 /* With two destinations if one value is thrown away, we must
@@ -1483,7 +1483,7 @@ TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead2)
       { TGSI_OPCODE_MOV, {out1}, {4}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,4}, {2,3}, {3,4}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,4}, {2,3}, {3,4}}));
 }
 
 /* Check that three source registers are used */
@@ -1495,7 +1495,7 @@ TEST_F(LifetimeEvaluatorExactTest, ThreeSourceRegisters)
       { TGSI_OPCODE_MAD, {out0}, {1,2,3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {0,2}, {1,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {0,2}, {1,2}}));
 }
 
 /* Check minimal lifetime for registers only written to */
@@ -1506,7 +1506,7 @@ TEST_F(LifetimeEvaluatorExactTest, OverwriteWrittenOnlyTemps)
       { TGSI_OPCODE_MOV , {2}, {in1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,1}, {1,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,1}, {1,2}}));
 }
 
 /* Same register is only written twice. This should not happen,
@@ -1520,7 +1520,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteOnlyTwiceSame)
       { TGSI_OPCODE_MOV, {1}, {in0}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}}));
 }
 
 /* Dead code elimination should catch and remove the case
@@ -1539,7 +1539,7 @@ TEST_F(LifetimeEvaluatorExactTest, WritePastLastRead)
       { TGSI_OPCODE_END},
 
    };
-   run (code, expectation({{-1,-1}, {0,3}, {1,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,3}, {1,2}}));
 }
 
 /* If a break is in the loop, all variables written after the
@@ -1560,7 +1560,7 @@ TEST_F(LifetimeEvaluatorExactTest, NestedLoopWithWriteAfterBreak)
       { TGSI_OPCODE_ENDLOOP },
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,8}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,8}}));
 }
 
 /* Check lifetime estimation with a relative addressing in src.
@@ -1579,7 +1579,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr1)
       { TGSI_OPCODE_MOV, {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,2}, {2,3}}));
 }
 
 /* Check lifetime estimation with a relative addressing in src */
@@ -1592,7 +1592,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectReladdr2)
       { TGSI_OPCODE_MOV , {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,2},{2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,2},{2,3}}));
 }
 
 /* Check lifetime estimation with a relative addressing in src */
@@ -1605,7 +1605,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr1)
       { TGSI_OPCODE_MOV , {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,2}, {2,3}}));
 }
 
 /* Check lifetime estimation with a relative addressing in src */
@@ -1618,7 +1618,7 @@ TEST_F(LifetimeEvaluatorExactTest, ReadIndirectTexOffsReladdr2)
       { TGSI_OPCODE_MOV , {out0}, {3}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,2}, {2,3}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,2}, {2,3}}));
 }
 
 /* Check lifetime estimation with a relative addressing in dst */
@@ -1630,7 +1630,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr1)
       { TGSI_OPCODE_MOV , {MT(5,1,0)}, {MT(in1,0,0)}, {}, RA()},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}}));
 }
 
 /* Check lifetime estimation with a relative addressing in dst */
@@ -1644,7 +1644,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
       { TGSI_OPCODE_MOV , {out1}, {2}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, expectation({{-1,-1}, {0,2}, {1,4}}));
+   run (code, temp_lt_expect({{-1,-1}, {0,2}, {1,4}}));
 }
 
 /* Test remapping table of registers. The tests don't assume

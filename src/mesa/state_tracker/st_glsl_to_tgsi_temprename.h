@@ -81,4 +81,15 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
                                   const struct register_lifetime* lifetimes,
                                   struct rename_reg_pair *result);
 
+
+struct array_remap_pair {
+   int target_array_id;
+   int rename_swizzle[4];
+   bool valid;
+};
+
+void get_array_remapping(void *mem_ctx, int narrays,
+                         const struct array_lifetime *arr_lifetimes,
+                         struct array_remap_pair *result);
+
 #endif

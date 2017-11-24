@@ -32,13 +32,17 @@ class array_remapping {
 public:
    array_remapping(int tid, int res_swizzle, int old_swizzle);
 
-   int writemask(int original_swizzle) const;
-   int read_swizzle(int original_swizzle) const;
+   int writemask(int original_bits) const;
+   int read_swizzle(int original_bits) const;
    int new_array_id() const;
 
    int target_id;
    int writemask_map[4];
    int read_swizzle_map[4];
+
+#ifndef NDEBUG
+   int original_writemask;
+#endif
 };
 
 }

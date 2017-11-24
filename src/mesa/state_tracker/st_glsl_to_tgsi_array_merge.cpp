@@ -44,17 +44,25 @@ public:
 
 namespace tgsi_array_remap {
 
-array_remapping::array_remapping(int tid, int res_swizzle, int to_map_swizzle):
+array_remapping::array_remapping(int tid, int reserved_component_bits,
+                                 int orig_component_bits):
    target_id(tid)
 {
+#ifndef NDEBUG
+  original_writemask = orig_component_bits;
+  for (int i = 0; i < 4; ++i) {
+     read_swizzle_map[i] = -1;
+  }
+#endif
+
    int src_swizzle = 1;
    int free_swizzle = 1;
    int k = 0;
    for (int i = 0; i < 4; ++i, src_swizzle <<= 1) {
-      if (!(src_swizzle & to_map_swizzle))
+      if (!(src_swizzle & orig_component_bits))
          continue;
 
-      while (res_swizzle & free_swizzle) {
+      while (reserved_component_bits & free_swizzle) {
          free_swizzle <<= 1;
          ++k;
       }
@@ -64,21 +72,23 @@ array_remapping::array_remapping(int tid, int res_swizzle, int to_map_swizzle):
    }
 }
 
-int array_remapping::writemask(int original_writemask) const
+int array_remapping::writemask(int writemask_to_map) const
 {
+   assert(original_writemask & writemask_to_map);
+
    int result = 0;
-   int m = 1;
    for (int i = 0; i < 4; ++i) {
-      if (m << 1 & original_writemask) {
+      if (1 << i & writemask_to_map) {
          result |= writemask_map[i];
       }
    }
    return result;
 }
 
-int array_remapping::read_swizzle(int original_swizzle) const
+int array_remapping::read_swizzle(int swizzle_to_map) const
 {
-   return read_swizzle_map[original_swizzle];
+   assert(read_swizzle_map[swizzle_to_map] >= 0);
+   return read_swizzle_map[swizzle_to_map];
 }
 
 int array_remapping::new_array_id() const

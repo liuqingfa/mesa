@@ -68,6 +68,7 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
       }
       read_swizzle_map[i] = k;
       writemask_map[i] = free_swizzle;
+      reserved_component_bits |= free_swizzle;
       assert(k < 4);
    }
 }

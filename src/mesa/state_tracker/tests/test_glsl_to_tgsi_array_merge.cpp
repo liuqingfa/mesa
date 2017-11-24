@@ -35,6 +35,7 @@
 
 using std::vector;
 
+using tgsi_array_remap::array_remapping;
 
 /* Test two arrays life time simple */
 TEST_F(LifetimeEvaluatorExactTest, TwoArraysSimple)
@@ -131,4 +132,30 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysReadWriteInSeparateScopes)
       { TGSI_OPCODE_END}
    };
    run (code, array_lt_expect({{2, 6, WRITEMASK_W}}));
+}
+
+using SwizzleRemapTest=testing::Test;
+
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_x_x)
+{
+   array_remapping map1(10, 1, 1);
+   ASSERT_EQ(map1.new_array_id(), 10);
+   ASSERT_EQ(map1.writemask(1), 2);
+   ASSERT_EQ(map1.read_swizzle(0), 1);
+}
+
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
+{
+   array_remapping map1(5, 3, 1);
+   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.writemask(1), 4);
+   ASSERT_EQ(map1.read_swizzle(0), 2);
+}
+
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_xyz_x)
+{
+   array_remapping map1(5, 7, 1);
+   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.writemask(1), 8);
+   ASSERT_EQ(map1.read_swizzle(0), 3);
 }

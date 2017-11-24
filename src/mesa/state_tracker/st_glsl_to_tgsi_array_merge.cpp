@@ -22,6 +22,7 @@
  */
 
 #include "st_glsl_to_tgsi_array_merge.h"
+#include <ostream>
 
 class array_access_record {
 public:
@@ -46,19 +47,22 @@ namespace tgsi_array_remap {
 
 array_remapping::array_remapping(int tid, int reserved_component_bits,
                                  int orig_component_bits):
-   target_id(tid)
+   target_id(tid),
+   valid(true)
 {
 #ifndef NDEBUG
-  original_writemask = orig_component_bits;
-  for (int i = 0; i < 4; ++i) {
-     read_swizzle_map[i] = -1;
-  }
+   original_writemask = orig_component_bits;
 #endif
+
+   for (int i = 0; i < 4; ++i) {
+      read_swizzle_map[i] = -1;
+   }
 
    int src_swizzle = 1;
    int free_swizzle = 1;
    int k = 0;
    for (int i = 0; i < 4; ++i, src_swizzle <<= 1) {
+      writemask_map[i] = 0;
       if (!(src_swizzle & orig_component_bits))
          continue;
 
@@ -75,6 +79,7 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
 
 int array_remapping::writemask(int writemask_to_map) const
 {
+   assert(valid);
    assert(original_writemask & writemask_to_map);
 
    int result = 0;
@@ -88,13 +93,62 @@ int array_remapping::writemask(int writemask_to_map) const
 
 int array_remapping::read_swizzle(int swizzle_to_map) const
 {
+   assert(valid);
    assert(read_swizzle_map[swizzle_to_map] >= 0);
    return read_swizzle_map[swizzle_to_map];
 }
 
-int array_remapping::new_array_id() const
+void array_remapping::print(std::ostream& os) const
 {
-   return target_id;
+   static const char xyzw[] = "xyzw";
+   if (valid) {
+      os << "[aid: " << target_id
+         << "write-swz: ";
+      for (int i = 0; i < 4; ++i) {
+         switch (writemask_map[i]) {
+         case 1: os << "x"; break;
+         case 2: os << "y"; break;
+         case 4: os << "z"; break;
+         case 8: os << "w"; break;
+         default: os << "_";
+         }
+      }
+      os << " ";
+      for (int i = 0; i < 4; ++i) {
+         if (read_swizzle_map[i] >= 0)
+            os << xyzw[read_swizzle_map[i]];
+         else
+            os << "_";
+      }
+      os << "]";
+   } else {
+      os << "[unused]";
+   }
+}
+
+bool operator == (const array_remapping& lhs, const array_remapping& rhs)
+{
+   if (!lhs.valid)
+      return !rhs.valid;
+
+   if (!rhs.valid)
+      return false;
+
+   if (lhs.target_id != rhs.target_id)
+      return false;
+
+   return ((memcmp(lhs.writemask_map, rhs.writemask_map,
+                   4 * sizeof(uint8_t)) == 0) &&
+           (memcmp(lhs.read_swizzle_map, rhs.read_swizzle_map,
+                   4 * sizeof(uint8_t)) == 0));
+}
+
+bool get_array_remapping(void *mem_ctx, int narrays, int *array_length,
+                         struct array_lifetime *arr_lifetimes,
+                         array_remapping *remapping)
+{
+   remapping[1] = array_remapping(1, 1, 1);
+   return true;
 }
 
 }

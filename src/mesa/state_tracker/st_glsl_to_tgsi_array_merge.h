@@ -25,33 +25,48 @@
 #define MESA_GLSL_TO_TGSI_ARRAY_MERGE_H
 
 #include "st_glsl_to_tgsi_private.h"
-
-namespace tgsi_array_remap {
-
-class array_remapping {
-public:
-   array_remapping(int tid, int res_swizzle, int old_swizzle);
-
-   int writemask(int original_bits) const;
-   int read_swizzle(int original_bits) const;
-   int new_array_id() const;
-
-   int target_id;
-   int writemask_map[4];
-   int read_swizzle_map[4];
-
-#ifndef NDEBUG
-   int original_writemask;
-#endif
-};
-
-}
+#include <iosfwd>
 
 struct array_lifetime {
   int begin;
   int end;
   int access_swizzle;
 };
+
+namespace tgsi_array_remap {
+
+class array_remapping {
+public:
+   array_remapping():valid(false) {}
+   array_remapping(int tid, int res_swizzle, int old_swizzle);
+
+   int writemask(int original_bits) const;
+   int read_swizzle(int original_bits) const;
+   int new_array_id() const {return target_id;}
+   bool is_valid() const ;
+
+   friend bool operator == (const array_remapping& lhs,
+                            const array_remapping& rhs);
+
+   void print(std::ostream& os) const;
+
+private:
+   int target_id;
+   uint8_t writemask_map[4];
+   uint8_t read_swizzle_map[4];
+   bool valid;
+
+
+#ifndef NDEBUG
+   int original_writemask;
+#endif
+};
+
+bool get_array_remapping(void *mem_ctx, int narrays, int *array_length,
+                         struct array_lifetime *arr_lifetimes,
+                         array_remapping *remapping);
+
+}
 
 int merge_arrays(void *mem_ctx,
                  int narrays,

@@ -23,7 +23,6 @@
 
 #include "st_tests_common.h"
 
-#include <state_tracker/st_glsl_to_tgsi_temprename.h>
 #include <mesa/program/prog_instruction.h>
 #include <tgsi/tgsi_info.h>
 #include <tgsi/tgsi_ureg.h>

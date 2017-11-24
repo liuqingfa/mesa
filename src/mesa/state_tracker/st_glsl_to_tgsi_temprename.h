@@ -38,12 +38,7 @@ struct register_lifetime {
    int end;
 };
 
-
-struct array_lifetime {
-   int begin;
-   int end;
-   int access_swizzle;
-};
+struct array_lifetime;
 
 /** Evaluates the required life times of temporary registers in a shader.
  * The life time estimation can only be run sucessfully if the shader doesn't
@@ -81,15 +76,5 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
                                   const struct register_lifetime* lifetimes,
                                   struct rename_reg_pair *result);
 
-
-struct array_remap_pair {
-   int target_array_id;
-   int rename_swizzle[4];
-   bool valid;
-};
-
-void get_array_remapping(void *mem_ctx, int narrays,
-                         const struct array_lifetime *arr_lifetimes,
-                         struct array_remap_pair *result);
 
 #endif

@@ -21,6 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+
 #include "st_tests_common.h"
 
 #include <tgsi/tgsi_ureg.h>

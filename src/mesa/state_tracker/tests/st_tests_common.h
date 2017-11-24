@@ -24,7 +24,8 @@
 #ifndef mesa_st_tests_h
 #define mesa_st_tests_h
 
-#include <mesa/state_tracker/st_glsl_to_tgsi_temprename.h>
+#include <state_tracker/st_glsl_to_tgsi_temprename.h>
+#include <state_tracker/st_glsl_to_tgsi_array_merge.h>
 #include <gtest/gtest.h>
 #include <utility>
 

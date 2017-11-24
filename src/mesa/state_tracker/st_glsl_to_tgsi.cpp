@@ -56,6 +56,7 @@
 #include "st_nir.h"
 #include "st_shader_cache.h"
 #include "st_glsl_to_tgsi_temprename.h"
+#include "st_glsl_to_tgsi_array_merge.h"
 
 #include "util/hash_table.h"
 #include <algorithm>

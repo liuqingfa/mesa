@@ -22,6 +22,8 @@
  */
 
 #include "st_glsl_to_tgsi_temprename.h"
+#include "st_glsl_to_tgsi_array_merge.h"
+
 #include <tgsi/tgsi_info.h>
 #include <tgsi/tgsi_strings.h>
 #include <program/prog_instruction.h>
@@ -954,19 +956,6 @@ public:
    }
 };
 
-class array_access_record {
-public:
-   int begin;
-   int end;
-   int array_id;
-   int length;
-   bool erase;
-   int swizzle;
-   bool operator < (const array_access_record& rhs) const {
-      return begin < rhs.begin;
-   }
-};
-
 class access_recorder {
 public:
    access_recorder(int _ntemps, int _narrays);
@@ -1282,12 +1271,6 @@ static int access_record_compare (const void *a, const void *b) {
    const access_record *bb = static_cast<const access_record*>(b);
    return aa->begin < bb->begin ? -1 : (aa->begin > bb->begin ? 1 : 0);
 }
-
-static int arr_access_record_compare (const void *a, const void *b) {
-   const array_access_record *aa = static_cast<const array_access_record*>(a);
-   const array_access_record *bb = static_cast<const array_access_record*>(b);
-   return aa->begin < bb->begin ? -1 : (aa->begin > bb->begin ? 1 : 0);
-}
 #endif
 
 /* This functions evaluates the register merges by using a binary
@@ -1358,148 +1341,6 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
    }
    ralloc_free(reg_access);
 }
-
-void get_swizzle_map(int reserved_swizzle, int to_map_swizzle, int result[])
-{
-   int src_swizzle = 1;
-   int free_swizzle = 1;
-   int k = 0;
-   for (int i = 0; i < 4; ++i, src_swizzle <<= 1) {
-      if (!(src_swizzle & to_map_swizzle))
-         continue;
-
-      while (reserved_swizzle & free_swizzle) {
-         free_swizzle <<= 1;
-         ++k;
-      }
-      result[i] = k;
-      assert(k < 4);
-   }
-}
-
-void get_array_remapping(void *mem_ctx, int narrays,
-                         const int *array_length,
-                         const struct array_lifetime *lifetimes,
-                         struct array_remap_pair *result)
-{
-   static const int standard_swizzle_map[4] = {0,1,2,3};
-
-   /* First try to obtain an array renaming */
-   array_access_record  *acc =  ralloc_array(mem_ctx, array_access_record, narrays);
-
-   int used_arrays = 0;
-   for (int i = 0; i < narrays; ++i) {
-      if (lifetimes[i].begin >= 0) {
-         acc[used_arrays].begin = lifetimes[i].begin;
-         acc[used_arrays].end = lifetimes[i].end;
-         acc[used_arrays].array_id = i;
-         acc[used_arrays].erase = false;
-         acc[used_arrays].length = array_length[i];
-         acc[used_arrays].swizzle = lifetimes[i].access_swizzle;
-         ++used_arrays;
-      }
-   }
-
-#ifdef USE_STL_SORT
-   std::sort(acc, acc + used_arrays);
-#else
-   std::qsort(acc, used_arrays, sizeof(array_access_record),
-              array_access_record_compare);
-#endif
-   array_access_record *trgt = acc;
-   array_access_record *access_end = acc + used_arrays;
-   array_access_record *first_erase = access_end;
-   array_access_record *search_start = trgt + 1;
-
-   while (trgt != access_end) {
-      array_access_record *src = find_next_rename(search_start, access_end,
-                                                  trgt->end);
-      if (src != access_end) {
-         array_access_record *eliminated;
-
-         /* Always map to the larger array */
-         if (src->length < trgt->length) {
-            result[src->array_id].target_array_id = trgt->array_id;
-            result[src->array_id].valid = true;
-            memcpy(result[src->array_id].rename_swizzle, standard_swizzle_map,
-                   4 * sizeof(int));
-            trgt->end = src->end;
-            trgt->swizzle |= src->swizzle;
-            eliminated = src;
-         }else{
-            result[trgt->array_id].target_array_id = src->array_id;
-            result[trgt->array_id].valid = true;
-            memcpy(result[src->array_id].rename_swizzle, standard_swizzle_map,
-                   4 * sizeof(int));
-            src->end = trgt->end;
-            src->swizzle |= trgt->swizzle;
-            eliminated = trgt;
-            trgt = src;
-         }
-
-         --used_arrays;
-
-         /* Since we only search forward, don't remove the renamed
-          * array just now, only mark it. */
-         eliminated->erase = true;
-
-         if (first_erase == access_end)
-            first_erase = eliminated;
-
-         search_start = src + 1;
-      } else {
-         /* Moving to the next target array it is time to remove
-          * the already merged array from the search range */
-         if (first_erase != access_end) {
-            array_access_record *outp = first_erase;
-            array_access_record *inp = first_erase + 1;
-
-            while (inp != access_end) {
-               if (!inp->erase)
-                  *outp++ = *inp;
-               ++inp;
-            }
-
-            access_end = outp;
-            first_erase = access_end;
-         }
-         ++trgt;
-         search_start = trgt + 1;
-      }
-   }
-
-   if (used_arrays > 1) {
-      /* Try to interleave arrays */
-      for (int i = 0; i < used_arrays; ++i) {
-         if (acc[i].erase)
-            continue;
-
-         for (int j = 0; j < used_arrays; ++j) {
-            if (acc[j].erase)
-               continue;
-
-            if ((acc[i].swizzle & acc[j].swizzle) == 0) {
-               if (acc[i].length > acc[j].length) {
-                  result[j].target_array_id = acc[i].array_id;
-                  result[j].valid = true;
-                  get_swizzle_map(acc[i].swizzle, acc[j].swizzle, result[j].rename_swizzle);
-                  acc[i].swizzle |= acc[j].swizzle;
-                  acc[j].erase = true;
-               } else {
-                  result[i].target_array_id = acc[j].array_id;
-                  result[i].valid = true;
-                  get_swizzle_map(acc[j].swizzle, acc[i].swizzle, result[i].rename_swizzle);
-                  acc[j].swizzle |= acc[i].swizzle;
-                  acc[i].erase = true;
-               }
-            }
-         }
-      }
-   }
-
-   ralloc_free(acc);
-}
-
 
 /* Code below used for debugging */
 #ifndef NDEBUG

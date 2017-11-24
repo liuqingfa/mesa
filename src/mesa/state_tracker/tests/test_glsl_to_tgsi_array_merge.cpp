@@ -35,7 +35,7 @@
 
 using std::vector;
 
-using tgsi_array_remap::array_remapping;
+using namespace tgsi_array_remap;
 
 /* Test two arrays life time simple */
 TEST_F(LifetimeEvaluatorExactTest, TwoArraysSimple)
@@ -158,4 +158,53 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xyz_x)
    ASSERT_EQ(map1.new_array_id(), 5);
    ASSERT_EQ(map1.writemask(1), 8);
    ASSERT_EQ(map1.read_swizzle(0), 3);
+}
+
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_xy)
+{
+   array_remapping map1(5, 3, 3);
+   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.writemask(1), 4);
+   ASSERT_EQ(map1.writemask(2), 8);
+   ASSERT_EQ(map1.writemask(3), 0xC);
+   ASSERT_EQ(map1.read_swizzle(0), 2);
+   ASSERT_EQ(map1.read_swizzle(1), 3);
+}
+
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
+{
+   array_remapping map1(5, 5, 9);
+   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.writemask(1), 2);
+   ASSERT_EQ(map1.writemask(8), 8);
+   ASSERT_EQ(map1.writemask(9), 0xA);
+   ASSERT_EQ(map1.read_swizzle(0), 1);
+   ASSERT_EQ(map1.read_swizzle(3), 3);
+}
+
+TEST_F(SwizzleRemapTest, ArrayMergeTwoSwizzles)
+{
+   const unsigned narrays = 2;
+   int array_length[] = {4, 4};
+
+   vector<array_lifetime> alt = {
+      { 1, 5, WRITEMASK_X},
+      { 1, 5, WRITEMASK_X},
+   };
+
+   vector<array_remapping> expect  = {
+      {},
+      { 1, WRITEMASK_X, WRITEMASK_X},
+   };
+
+   vector<array_remapping> result(2);
+
+   get_array_remapping(nullptr, narrays, array_length,
+                       &alt[0], &result[0]);
+
+   EXPECT_EQ(alt.size(), result.size());
+
+   for (unsigned i = 0; i < narrays; ++i)
+      EXPECT_EQ(result[i], expect[i]);
+
 }

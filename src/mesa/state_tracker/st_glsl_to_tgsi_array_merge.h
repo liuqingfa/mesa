@@ -27,10 +27,30 @@
 #include "st_glsl_to_tgsi_private.h"
 #include <iosfwd>
 
-struct array_lifetime {
-  int begin;
-  int end;
-  int access_swizzle;
+class array_lifetime {
+
+public:
+   array_lifetime();
+   array_lifetime(unsigned id, unsigned length);
+
+   array_lifetime(unsigned id, unsigned length, int begin, int end, int sw);
+   void set_lifetime(int begin, int end);
+   void set_begin(int _begin){begin = _begin;}
+   void set_end(int _end){end = _end;}
+   void set_swizzle(int s){access_swizzle = s;}
+   int get_begin() const { return begin;}
+   int get_end() const { return end;}
+   int get_swizzle() const { return access_swizzle;}
+
+   bool has_equal_access(const array_lifetime& other) const;
+   bool contains_access_range(const array_lifetime& other) const;
+
+private:
+   unsigned array_id;
+   unsigned array_length;
+   int begin;
+   int end;
+   int access_swizzle;
 };
 
 namespace tgsi_array_remap {

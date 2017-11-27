@@ -46,7 +46,7 @@ TEST_F(LifetimeEvaluatorExactTest, TwoArraysSimple)
       { TGSI_OPCODE_ADD , {MT(0,out0, WRITEMASK_XYZW)}, {MT(1,1,"xyzw"), MT(2,1,"xyzw")}, {}, ARR()},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{0,2, WRITEMASK_XYZW}, {1,2, WRITEMASK_XYZW}}));
+   run (code, array_lt_expect({{1,2,0,2, WRITEMASK_XYZW}, {2,2,1,2, WRITEMASK_XYZW}}));
 }
 
 /* Test two arrays life time simple */
@@ -58,7 +58,7 @@ TEST_F(LifetimeEvaluatorExactTest, TwoArraysSimpleSwizzleX_Y)
       { TGSI_OPCODE_ADD , {MT(0,out0,1)}, {MT(1,1,"x"), MT(2,1,"y")}, {}, ARR()},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{0, 2, WRITEMASK_X}, {1, 2, WRITEMASK_Y}}));
+   run (code, array_lt_expect({{1, 2, 0, 2, WRITEMASK_X}, {2, 2, 1, 2, WRITEMASK_Y}}));
 }
 
 /* Test array written before loop and read inside, must survive the loop */
@@ -73,7 +73,7 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysWriteBeforLoopReadInside)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{1, 4, WRITEMASK_X}}));
+   run (code, array_lt_expect({{1, 1, 1, 4, WRITEMASK_X}}));
 }
 
 /* Test array written conditionally in loop must survive the whole loop */
@@ -92,7 +92,7 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysConditionalWriteInNestedLoop)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{1, 8, WRITEMASK_Z}}));
+   run (code, array_lt_expect({{1, 1, 1, 8, WRITEMASK_Z}}));
 }
 
 /* Test array written conditionally in loop must survive the whole loop */
@@ -113,7 +113,7 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysConditionalWriteInNestedLoop2)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{1, 10, WRITEMASK_Z}}));
+   run (code, array_lt_expect({{1, 1, 1, 10, WRITEMASK_Z}}));
 }
 
 
@@ -131,7 +131,7 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysReadWriteInSeparateScopes)
       { TGSI_OPCODE_MOV, {out0}, {1}, {}},
       { TGSI_OPCODE_END}
    };
-   run (code, array_lt_expect({{2, 6, WRITEMASK_W}}));
+   run (code, array_lt_expect({{1, 1, 2, 6, WRITEMASK_W}}));
 }
 
 using SwizzleRemapTest=testing::Test;
@@ -188,13 +188,13 @@ TEST_F(SwizzleRemapTest, ArrayMergeTwoSwizzles)
    int array_length[] = {4, 4};
 
    vector<array_lifetime> alt = {
-      { 1, 5, WRITEMASK_X},
-      { 1, 5, WRITEMASK_X},
+      {1, 1, 1, 5, WRITEMASK_X},
+      {1, 1, 1, 5, WRITEMASK_X},
    };
 
    vector<array_remapping> expect  = {
       {},
-      { 1, WRITEMASK_X, WRITEMASK_X},
+      {1, WRITEMASK_X, WRITEMASK_X},
    };
 
    vector<array_remapping> result(2);

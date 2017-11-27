@@ -38,7 +38,7 @@ struct register_lifetime {
    int end;
 };
 
-struct array_lifetime;
+class array_lifetime;
 
 /** Evaluates the required life times of temporary registers in a shader.
  * The life time estimation can only be run sucessfully if the shader doesn't
@@ -62,7 +62,7 @@ struct array_lifetime;
 bool
 get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
                                       int ntemps, struct register_lifetime *reg_lifetimes,
-                                      int narrays, struct array_lifetime *arr_lifetimes);
+                                      int narrays, array_lifetime *arr_lifetimes);
 /** Estimate the merge remapping of the registers.
  * @param[in] mem_ctx a memory context that can be used with the ralloc_* functions
  * @param[in] ntemps number of temporaries reserved for this shader

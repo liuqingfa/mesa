@@ -237,7 +237,7 @@ public:
    array_access();
    void record_read(int line, prog_scope *scope, int swizzle);
    void record_write(int line, prog_scope *scope, int writemask);
-   array_lifetime get_required_lifetime();
+   void get_required_lifetime(array_lifetime &lt);
 private:
    int first_access;
    int last_access;
@@ -901,11 +901,11 @@ void array_access::record_write(int line, prog_scope *scope, int writemask)
       conditional_write = true;
 }
 
-array_lifetime array_access::get_required_lifetime()
+void array_access::get_required_lifetime(array_lifetime& lt)
 {
    if (first_access_scope == last_access_scope) {
-      return array_lifetime{first_access, last_access,
-               accumulated_swizzle};
+      lt.set_lifetime(first_access, last_access);
+      lt.set_swizzle(accumulated_swizzle);
    }
 
    const prog_scope *shared_scope = first_access_scope;
@@ -938,8 +938,8 @@ array_lifetime array_access::get_required_lifetime()
       other_scope = other_scope->parent();
    }
 
-   return array_lifetime{first_access, last_access,
-            accumulated_swizzle};
+   lt.set_lifetime(first_access, last_access);
+   lt.set_swizzle(accumulated_swizzle);
 }
 
 /* Helper class for sorting and searching the registers based
@@ -1037,7 +1037,7 @@ void access_recorder::get_required_lifetimes(struct register_lifetime *reg_lifet
    for(int i = 0; i < ntemps; ++i) {
       RENAME_DEBUG(cerr << setw(4) << i);
       reg_lifetimes[i] = acc[i].get_required_lifetime();
-      RENAME_DEBUG(cerr << ": [" << reg_lifetimes[i].begin << ", "
+      RENAME_DEBUG(cerr << ": [" << reg_lifetimes[i].begin<< ", "
                    << reg_lifetimes[i].end << "]\n");
    }
    RENAME_DEBUG(cerr << "==================================\n\n");
@@ -1045,9 +1045,9 @@ void access_recorder::get_required_lifetimes(struct register_lifetime *reg_lifet
    RENAME_DEBUG(cerr << "========= array lifetimes ==============\n");
    for(int i = 0; i < narrays; ++i) {
       RENAME_DEBUG(cerr << setw(4) << i);
-      arr_lifetimes[i] = arr[i].get_required_lifetime();
-      RENAME_DEBUG(cerr << ": [" << arr_lifetimes[i].begin << ", "
-                   << arr_lifetimes[i].end << "]\n");
+      arr[i].get_required_lifetime(arr_lifetimes[i]);
+      RENAME_DEBUG(cerr << ": [" << arr_lifetimes[i].get_begin() << ", "
+                   << arr_lifetimes[i].get_end() << "]\n");
    }
    RENAME_DEBUG(cerr << "==================================\n\n");
 }
@@ -1066,7 +1066,7 @@ bool
 get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
                                       int ntemps, struct register_lifetime *reg_lifetimes,
                                       int narrays,
-                                      struct array_lifetime *arr_lifetimes)
+                                      array_lifetime *arr_lifetimes)
 {
    int line = 0;
    int loop_id = 1;

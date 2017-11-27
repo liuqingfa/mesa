@@ -43,6 +43,54 @@ public:
 };
 
 
+array_lifetime::array_lifetime():
+   array_id(0),
+   array_length(0),
+   begin(0),
+   end(0),
+   access_swizzle(0)
+{
+}
+
+array_lifetime::array_lifetime(unsigned id, unsigned length):
+   array_id(id),
+   array_length(length),
+   begin(0),
+   end(0),
+   access_swizzle(0)
+{
+}
+
+array_lifetime::array_lifetime(unsigned id, unsigned length, int begin,
+                               int end, int sw):
+   array_id(id),
+   array_length(length),
+   begin(begin),
+   end(end),
+   access_swizzle(sw)
+{
+}
+
+void array_lifetime::set_lifetime(int _begin, int _end)
+{
+   set_begin(_begin);
+   set_end(_end);
+}
+
+bool array_lifetime::has_equal_access(const array_lifetime& other) const
+{
+   return begin == other.begin &&
+         end == other.end &&
+         access_swizzle == other.access_swizzle;
+}
+
+bool array_lifetime::contains_access_range(const array_lifetime& other) const
+{
+   return begin < other.begin &&
+         end > other.end &&
+         (access_swizzle | other.access_swizzle) == access_swizzle;
+}
+
 namespace tgsi_array_remap {
 
 array_remapping::array_remapping(int tid, int reserved_component_bits,

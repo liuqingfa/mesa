@@ -5288,14 +5288,17 @@ glsl_to_tgsi_visitor::merge_two_dsts(void)
 void
 glsl_to_tgsi_visitor::merge_registers(void)
 {
-   struct array_lifetime *array_lifetimes = nullptr;
+   struct array_lifetime *array_lifetimes = NULL;
 
    struct register_lifetime *reg_lifetimes =
          rzalloc_array(mem_ctx, struct register_lifetime, this->next_temp);
 
-   if (this->next_array > 0)
-      array_lifetimes = rzalloc_array(reg_lifetimes, struct array_lifetime,
-                                    this->next_array);
+   if (this->next_array > 0) {
+      array_lifetimes = new array_lifetime[this->next_array - 1];
+      for (unsigned i = 0; i < this->next_array; ++i)
+         array_lifetimes[i] = array_lifetime(i+1, this->array_sizes[i+1]);
+   }
+
 
    if (get_temp_registers_required_lifetimes(reg_lifetimes, &this->instructions,
                                              this->next_temp, reg_lifetimes,
@@ -5304,6 +5307,9 @@ glsl_to_tgsi_visitor::merge_registers(void)
             rzalloc_array(reg_lifetimes, struct rename_reg_pair, this->next_temp);
       get_temp_registers_remapping(reg_lifetimes, this->next_temp, reg_lifetimes, renames);
       rename_temp_registers(renames);
+
+      if (array_lifetimes)
+         delete[] array_lifetimes;
    }
    ralloc_free(reg_lifetimes);
 }

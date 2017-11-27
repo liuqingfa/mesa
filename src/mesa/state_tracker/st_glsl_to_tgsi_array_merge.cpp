@@ -93,9 +93,17 @@ bool array_lifetime::contains_access_range(const array_lifetime& other) const
 
 namespace tgsi_array_remap {
 
+array_remapping::array_remapping(int tid):
+   target_id(tid),
+   reswizzle(false),
+   valid(true)
+{
+}
+
 array_remapping::array_remapping(int tid, int reserved_component_bits,
                                  int orig_component_bits):
    target_id(tid),
+   reswizzle(true),
    valid(true)
 {
 #ifndef NDEBUG
@@ -128,6 +136,10 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
 int array_remapping::writemask(int writemask_to_map) const
 {
    assert(valid);
+
+   if (!reswizzle)
+      return writemask_to_map;
+
    assert(original_writemask & writemask_to_map);
 
    int result = 0;
@@ -142,6 +154,10 @@ int array_remapping::writemask(int writemask_to_map) const
 int array_remapping::read_swizzle(int swizzle_to_map) const
 {
    assert(valid);
+
+   if (!reswizzle)
+      return swizzle_to_map;
+
    assert(read_swizzle_map[swizzle_to_map] >= 0);
    return read_swizzle_map[swizzle_to_map];
 }
@@ -150,23 +166,26 @@ void array_remapping::print(std::ostream& os) const
 {
    static const char xyzw[] = "xyzw";
    if (valid) {
-      os << "[aid: " << target_id
-         << "write-swz: ";
-      for (int i = 0; i < 4; ++i) {
-         switch (writemask_map[i]) {
-         case 1: os << "x"; break;
-         case 2: os << "y"; break;
-         case 4: os << "z"; break;
-         case 8: os << "w"; break;
-         default: os << "_";
+      os << "[aid: " << target_id;
+
+      if (reswizzle) {
+         os << " write-swz: ";
+         for (int i = 0; i < 4; ++i) {
+            switch (writemask_map[i]) {
+            case 1: os << "x"; break;
+            case 2: os << "y"; break;
+            case 4: os << "z"; break;
+            case 8: os << "w"; break;
+            default: os << "_";
+            }
          }
-      }
-      os << " ";
-      for (int i = 0; i < 4; ++i) {
-         if (read_swizzle_map[i] >= 0)
-            os << xyzw[read_swizzle_map[i]];
-         else
+         os << " ";
+         for (int i = 0; i < 4; ++i) {
+            if (read_swizzle_map[i] >= 0)
+               os << xyzw[read_swizzle_map[i]];
+            else
             os << "_";
+         }
       }
       os << "]";
    } else {
@@ -185,14 +204,18 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
    if (lhs.target_id != rhs.target_id)
       return false;
 
-   return ((memcmp(lhs.writemask_map, rhs.writemask_map,
+   if (lhs.reswizzle) {
+      return (rhs.reswizzle &&
+           (memcmp(lhs.writemask_map, rhs.writemask_map,
                    4 * sizeof(uint8_t)) == 0) &&
            (memcmp(lhs.read_swizzle_map, rhs.read_swizzle_map,
                    4 * sizeof(uint8_t)) == 0));
+   } else {
+      return !rhs.reswizzle;
+   }
 }
 
-bool get_array_remapping(void *mem_ctx, int narrays, int *array_length,
-                         struct array_lifetime *arr_lifetimes,
+bool get_array_remapping(array_lifetime *arr_lifetimes,
                          array_remapping *remapping)
 {
    remapping[1] = array_remapping(1, 1, 1);

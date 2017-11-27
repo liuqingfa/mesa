@@ -243,7 +243,7 @@ private:
    int last_access;
    prog_scope *first_access_scope;
    prog_scope *last_access_scope;
-   bool conditional_write;
+   bool conditional_write_in_loop;
    int accumulated_swizzle;
 };
 
@@ -872,7 +872,7 @@ array_access::array_access():
    last_access(-1),
    first_access_scope(nullptr),
    last_access_scope(nullptr),
-   conditional_write(false),
+   conditional_write_in_loop(false),
    accumulated_swizzle(0)
 {
 }
@@ -897,8 +897,8 @@ void array_access::record_write(int line, prog_scope *scope, int writemask)
    last_access_scope = scope;
    last_access = line;
    accumulated_swizzle |= writemask;
-   if (scope->in_ifelse_scope())
-      conditional_write = true;
+   if (scope->in_ifelse_scope() && scope->innermost_loop())
+      conditional_write_in_loop = true;
 }
 
 void array_access::get_required_lifetime(array_lifetime& lt)
@@ -911,16 +911,27 @@ void array_access::get_required_lifetime(array_lifetime& lt)
    const prog_scope *shared_scope = first_access_scope;
    const prog_scope *other_scope = last_access_scope;
 
-   if (conditional_write) {
-      shared_scope = shared_scope->outermost_loop();
-      first_access = shared_scope->begin();
-      last_access = shared_scope->end();
+   assert(shared_scope);
+   RENAME_DEBUG(cerr << "shared_scope=" << shared_scope << "\n");
+
+   if (conditional_write_in_loop) {
+      const prog_scope *help = shared_scope->outermost_loop();
+      if (help) {
+         shared_scope = help;
+      } else {
+         help = other_scope->outermost_loop();
+         if (help)
+            other_scope = help;
+      }
+      if (first_access > shared_scope->begin())
+         first_access = shared_scope->begin();
+      if (last_access < shared_scope->end())
+         last_access = shared_scope->end();
    }
 
    /* See if any of the two is the parent of the other. */
    if (other_scope->contains_range_of(*shared_scope)) {
-      shared_scope = last_access_scope;
-      other_scope = first_access_scope;
+      shared_scope = other_scope;
    } else while (!shared_scope->contains_range_of(*other_scope)) {
       assert(shared_scope->parent());
       if (shared_scope->type() == loop_body) {
@@ -1001,7 +1012,8 @@ void access_recorder::record_read(const st_src_reg& src, int line,
       acc[src.index].record_read(line, scope, readmask);
 
    if (src.file == PROGRAM_ARRAY) {
-      RENAME_DEBUG(cerr << "src.array_id=" << src.array_id << ", narray=" <<narrays);
+      RENAME_DEBUG(cerr << "src.array_id=" << src.array_id << ", narray="
+                   << narrays  << " read scope: " << scope << "\n");
       assert(src.array_id <= narrays);
       arr[src.array_id - 1].record_read(line, scope, readmask);
    }
@@ -1019,7 +1031,8 @@ void access_recorder::record_write(const st_dst_reg& dst, int line,
       acc[dst.index].record_write(line, scope, dst.writemask);
 
    if (dst.file == PROGRAM_ARRAY) {
-      RENAME_DEBUG(cerr << "dst.array_id=" << dst.array_id << ", narray=" <<narrays);
+      RENAME_DEBUG(cerr << "dst.array_id=" << dst.array_id << ", narray="
+                   << narrays << " write scope: " << scope << "\n");
       assert(dst.array_id <= narrays);
       arr[dst.array_id - 1].record_write(line, scope, dst.writemask);
    }
@@ -1042,7 +1055,8 @@ void access_recorder::get_required_lifetimes(struct register_lifetime *reg_lifet
    }
    RENAME_DEBUG(cerr << "==================================\n\n");
 
-   RENAME_DEBUG(cerr << "========= array lifetimes ==============\n");
+   RENAME_DEBUG(cerr << "========= array lifetimes ("<< narrays
+                << ")==============" << std::endl);
    for(int i = 0; i < narrays; ++i) {
       RENAME_DEBUG(cerr << setw(4) << i);
       arr[i].get_required_lifetime(arr_lifetimes[i]);

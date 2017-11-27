@@ -152,6 +152,18 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
    ASSERT_EQ(map1.read_swizzle(0), 2);
 }
 
+TEST_F(SwizzleRemapTest, ArrayRemappingBase_no_reswizzle)
+{
+   array_remapping map1(5);
+   ASSERT_EQ(map1.new_array_id(), 5);
+   for (int i = 1; i < 16; ++i)
+      ASSERT_EQ(map1.writemask(i), i);
+
+   for (int i = 0; i < 4; ++i)
+      ASSERT_EQ(map1.read_swizzle(i), i);
+}
+
+
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xyz_x)
 {
    array_remapping map1(5, 7, 1);
@@ -182,29 +194,48 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
    ASSERT_EQ(map1.read_swizzle(3), 3);
 }
 
-TEST_F(SwizzleRemapTest, ArrayMergeTwoSwizzles)
-{
-   const unsigned narrays = 2;
-   int array_length[] = {4, 4};
+using ArrayMergeTest=testing::Test;
 
+TEST_F(ArrayMergeTest, ArrayMergeTwoSwizzles)
+{
    vector<array_lifetime> alt = {
-      {1, 1, 1, 5, WRITEMASK_X},
-      {1, 1, 1, 5, WRITEMASK_X},
+      {1, 4, 1, 5, WRITEMASK_X},
+      {1, 4, 1, 5, WRITEMASK_X},
    };
 
-   vector<array_remapping> expect  = {
+   vector<array_remapping> expect = {
       {},
       {1, WRITEMASK_X, WRITEMASK_X},
    };
 
    vector<array_remapping> result(2);
 
-   get_array_remapping(nullptr, narrays, array_length,
-                       &alt[0], &result[0]);
+   get_array_remapping(&alt[0], &result[0]);
 
-   EXPECT_EQ(alt.size(), result.size());
+   ASSERT_EQ(alt.size(), result.size());
 
-   for (unsigned i = 0; i < narrays; ++i)
+   EXPECT_EQ(result[0], expect[0]);
+   EXPECT_EQ(result[1], expect[1]);
+
+}
+
+
+
+TEST_F(ArrayMergeTest, SimpleChainMerge)
+{
+   vector<array_lifetime> input = {
+      {1, 3, 1, 5, WRITEMASK_XYZW},
+      {2, 2, 6, 7, WRITEMASK_XYZW},
+   };
+
+   vector<array_remapping> expect = {
+      {},
+      {1},
+   };
+
+   vector<array_remapping> result(2);
+   get_array_remapping(&input[0], &result[0]);
+
+   for (unsigned i = 0; i < expect.size(); ++i)
       EXPECT_EQ(result[i], expect[i]);
-
 }

@@ -58,6 +58,7 @@ namespace tgsi_array_remap {
 class array_remapping {
 public:
    array_remapping():valid(false) {}
+   array_remapping(int tid);
    array_remapping(int tid, int res_swizzle, int old_swizzle);
 
    int writemask(int original_bits) const;
@@ -74,16 +75,22 @@ private:
    int target_id;
    uint8_t writemask_map[4];
    uint8_t read_swizzle_map[4];
+   bool reswizzle;
    bool valid;
-
 
 #ifndef NDEBUG
    int original_writemask;
 #endif
 };
 
-bool get_array_remapping(void *mem_ctx, int narrays, int *array_length,
-                         struct array_lifetime *arr_lifetimes,
+inline
+std::ostream& operator << (std::ostream& os, const array_remapping& am)
+{
+   am.print(os);
+   return os;
+}
+
+bool get_array_remapping(array_lifetime *arr_lifetimes,
                          array_remapping *remapping);
 
 }

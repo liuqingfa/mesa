@@ -5294,7 +5294,7 @@ glsl_to_tgsi_visitor::merge_registers(void)
          rzalloc_array(mem_ctx, struct register_lifetime, this->next_temp);
 
    if (this->next_array > 0) {
-      array_lifetimes = new array_lifetime[this->next_array - 1];
+      array_lifetimes = new array_lifetime[this->next_array];
       for (unsigned i = 0; i < this->next_array; ++i)
          array_lifetimes[i] = array_lifetime(i+1, this->array_sizes[i+1]);
    }

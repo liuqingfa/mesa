@@ -22,7 +22,12 @@
  */
 
 #include "st_glsl_to_tgsi_array_merge.h"
+#include <util/u_math.h>
 #include <ostream>
+#include <cassert>
+#include <algorithm>
+
+#include <iostream>
 
 class array_access_record {
 public:
@@ -57,7 +62,8 @@ array_lifetime::array_lifetime(unsigned id, unsigned length):
    array_length(length),
    begin(0),
    end(0),
-   access_swizzle(0)
+   access_swizzle(0),
+   ncomponents(0)
 {
 }
 
@@ -67,7 +73,8 @@ array_lifetime::array_lifetime(unsigned id, unsigned length, int begin,
    array_length(length),
    begin(begin),
    end(end),
-   access_swizzle(sw)
+   access_swizzle(sw),
+   ncomponents(util_bitcount(sw))
 {
 }
 
@@ -75,6 +82,30 @@ void array_lifetime::set_lifetime(int _begin, int _end)
 {
    set_begin(_begin);
    set_end(_end);
+}
+
+void array_lifetime::set_swizzle(int sw)
+{
+   access_swizzle = sw;
+   ncomponents = util_bitcount(sw);
+}
+
+void array_lifetime::augment_lifetime(int b, int e)
+{
+   if (b < begin)
+      begin = b;
+   if (e > end)
+      e = end;
+}
+
+int array_lifetime::get_ncomponents() const
+{
+   return ncomponents;
+}
+
+bool array_lifetime::can_merge_with(const array_lifetime& other) const
+{
+   return (other.end < begin || end < other.begin);
 }
 
 bool array_lifetime::has_equal_access(const array_lifetime& other) const
@@ -131,6 +162,7 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
       reserved_component_bits |= free_swizzle;
       assert(k < 4);
    }
+   swizzle_sum = reserved_component_bits;
 }
 
 int array_remapping::writemask(int writemask_to_map) const
@@ -215,10 +247,96 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
    }
 }
 
-bool get_array_remapping(array_lifetime *arr_lifetimes,
+bool sort_by_begin(const array_lifetime& lhs, const array_lifetime& rhs) {
+   return lhs.get_begin() < rhs.get_begin();
+}
+
+static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
+                                           array_remapping *remapping)
+{
+   int remaps = 0;
+   std::sort(alt, alt + narrays, sort_by_begin);
+
+   for (int i = 0; i < narrays; ++i) {
+      array_lifetime& ai = alt[i];
+      if (remapping[i].is_valid())
+         continue;
+
+      for (int j = 0; j < narrays; ++j) {
+         if (i == j || remapping[j].is_valid())
+            continue;
+
+         array_lifetime& aj = alt[j];
+         if ((ai.get_array_length() < aj.get_array_length()) ||
+             (ai.get_swizzle() !=  aj.get_swizzle()) ||
+             !ai.can_merge_with(aj))
+            continue;
+
+         /* ai is a longer array then aj, they both have the same swizzle and
+          * the life ranges don't overlap, hence they can be merged.
+          */
+         remapping[j] = array_remapping(ai.get_id());
+         ai.augment_lifetime(aj.get_begin(), aj.get_end());
+         std::cerr << "Merge array " << j << " into " << i << "\n";
+
+         ++remaps;
+      }
+   }
+   return remaps;
+}
+
+static int interleave_arrays(int narrays, array_lifetime *alt,
+                             array_remapping *remapping)
+{
+   int remaps = 0;
+   for (int i = 0; i < narrays; ++i) {
+      array_lifetime& ai = alt[i];
+      if (remapping[i].is_valid())
+         continue;
+
+      for (int j = 0; j < narrays; ++j) {
+         if (i == j || remapping[j].is_valid())
+            continue;
+
+         array_lifetime& aj = alt[j];
+         if ((ai.get_array_length() < aj.get_array_length()) ||
+             (ai.get_ncomponents() + aj.get_ncomponents() > 4))
+            continue;
+
+         /* ai is a longer array then aj, and together they don
+          *
+          */
+         remapping[j] = array_remapping(ai.get_id(), ai.get_swizzle(),
+                                        aj.get_swizzle());
+         ai.augment_lifetime(aj.get_begin(), aj.get_end());
+         ai.set_swizzle(remapping[j].combined_swizzle());
+
+
+         std::cerr << "Interleave array " << j << " into " << i << "\n";
+
+         ++remaps;
+      }
+   }
+   return remaps;
+
+}
+
+bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                          array_remapping *remapping)
 {
-   remapping[1] = array_remapping(1, 1, 1);
+   int remapped_arrays;
+
+   do {
+      remapped_arrays = merge_arrays_with_equal_swizzle(narrays,
+                                                        arr_lifetimes,
+                                                        remapping);
+
+      remapped_arrays += interleave_arrays(narrays,
+                                           arr_lifetimes,
+                                           remapping);
+
+   } while (remapped_arrays > 0);
+
    return true;
 }
 

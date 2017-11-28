@@ -37,13 +37,19 @@ public:
    void set_lifetime(int begin, int end);
    void set_begin(int _begin){begin = _begin;}
    void set_end(int _end){end = _end;}
-   void set_swizzle(int s){access_swizzle = s;}
+   void set_swizzle(int s);
+   void augment_lifetime(int begin, int end);
+
    int get_begin() const { return begin;}
    int get_end() const { return end;}
    int get_swizzle() const { return access_swizzle;}
+   int get_array_length() const { return array_length;}
+   unsigned int get_id() const {return array_id;}
+   bool can_merge_with(const array_lifetime& other) const;
 
    bool has_equal_access(const array_lifetime& other) const;
    bool contains_access_range(const array_lifetime& other) const;
+   int get_ncomponents() const;
 
 private:
    unsigned array_id;
@@ -51,6 +57,7 @@ private:
    int begin;
    int end;
    int access_swizzle;
+   int ncomponents;
 };
 
 namespace tgsi_array_remap {
@@ -64,7 +71,8 @@ public:
    int writemask(int original_bits) const;
    int read_swizzle(int original_bits) const;
    int new_array_id() const {return target_id;}
-   bool is_valid() const ;
+   int combined_swizzle() const {return swizzle_sum;}
+   bool is_valid() const {return valid;}
 
    friend bool operator == (const array_remapping& lhs,
                             const array_remapping& rhs);
@@ -77,6 +85,7 @@ private:
    uint8_t read_swizzle_map[4];
    bool reswizzle;
    bool valid;
+   int swizzle_sum;
 
 #ifndef NDEBUG
    int original_writemask;
@@ -90,7 +99,7 @@ std::ostream& operator << (std::ostream& os, const array_remapping& am)
    return os;
 }
 
-bool get_array_remapping(array_lifetime *arr_lifetimes,
+bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                          array_remapping *remapping);
 
 }

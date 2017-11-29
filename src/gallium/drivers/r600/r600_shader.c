@@ -346,6 +346,8 @@ struct r600_shader_ctx {
 	boolean                 clip_vertex_write;
 	unsigned                cv_output;
 	unsigned		edgeflag_output;
+	int                                     cs_block_size_reg;
+	int                                     cs_grid_size_reg;
 	int					fragcoord_input;
 	int					native_integers;
 	int					next_ring_offset;
@@ -1308,6 +1310,60 @@ static int load_sample_position(struct r600_shader_ctx *ctx, struct r600_shader_
 	return t1;
 }
 
+static int load_block_grid_size(struct r600_shader_ctx *ctx, bool load_block)
+{
+	struct r600_bytecode_vtx vtx;
+	int r, t1;
+
+	if (load_block && ctx->cs_block_size_reg != -1)
+		return ctx->cs_block_size_reg;
+	if (!load_block && ctx->cs_grid_size_reg != -1)
+		return ctx->cs_grid_size_reg;
+	t1 = r600_get_temp(ctx);
+
+	struct r600_bytecode_alu alu;
+	memset(&alu, 0, sizeof(struct r600_bytecode_alu));
+	alu.op = ALU_OP1_MOV;
+	alu.src[0].sel = V_SQ_ALU_SRC_0;
+	alu.dst.sel = t1;
+	alu.dst.write = 1;
+	alu.last = 1;
+	r = r600_bytecode_add_alu(ctx->bc, &alu);
+	if (r)
+		return r;
+
+	memset(&vtx, 0, sizeof(struct r600_bytecode_vtx));
+	vtx.op = FETCH_OP_VFETCH;
+	vtx.buffer_id = R600_BUFFER_INFO_CONST_BUFFER;
+	vtx.fetch_type = SQ_VTX_FETCH_NO_INDEX_OFFSET;
+	vtx.src_gpr = t1;
+	vtx.src_sel_x = 0;
+
+	vtx.mega_fetch_count = 16;
+	vtx.dst_gpr = t1;
+	vtx.dst_sel_x = 0;
+	vtx.dst_sel_y = 1;
+	vtx.dst_sel_z = 2;
+	vtx.dst_sel_w = 7;
+	vtx.data_format = FMT_32_32_32_32;
+	vtx.num_format_all = 1;
+	vtx.format_comp_all = 0;
+	vtx.use_const_fields = 0;
+	vtx.offset = load_block ? 0 : 16; // first element is size of buffer
+	vtx.endian = r600_endian_swap(32);
+	vtx.srf_mode_all = 1; /* SRF_MODE_NO_ZERO */
+
+	r = r600_bytecode_add_vtx(ctx->bc, &vtx);
+	if (r)
+		return r;
+
+	if (load_block)
+		ctx->cs_block_size_reg = t1;
+	else
+		ctx->cs_grid_size_reg = t1;
+	return t1;
+}
+
 static void tgsi_src(struct r600_shader_ctx *ctx,
 		     const struct tgsi_full_src_register *tgsi_src,
 		     struct r600_shader_src *r600_src)
@@ -1413,6 +1469,10 @@ static void tgsi_src(struct r600_shader_ctx *ctx,
 			r600_src->swizzle[1] = 3;
 			r600_src->swizzle[2] = 3;
 			r600_src->swizzle[3] = 3;
+		} else if (ctx->info.system_value_semantic_name[tgsi_src->Register.Index] == TGSI_SEMANTIC_GRID_SIZE) {
+			r600_src->sel = load_block_grid_size(ctx, false);
+		} else if (ctx->info.system_value_semantic_name[tgsi_src->Register.Index] == TGSI_SEMANTIC_BLOCK_SIZE) {
+			r600_src->sel = load_block_grid_size(ctx, true);
 		}
 	} else {
 		if (tgsi_src->Register.Indirect)
@@ -3139,6 +3199,8 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	ctx.face_gpr = -1;
 	ctx.fixed_pt_position_gpr = -1;
 	ctx.fragcoord_input = -1;
+	ctx.cs_block_size_reg = -1;
+	ctx.cs_grid_size_reg = -1;
 	ctx.colors_used = 0;
 	ctx.clip_vertex_write = 0;
 

@@ -142,6 +142,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_x_x)
    ASSERT_EQ(map1.new_array_id(), 10);
    ASSERT_EQ(map1.writemask(1), 2);
    ASSERT_EQ(map1.read_swizzle(0), 1);
+   ASSERT_EQ(map1.combined_swizzle(), 3);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
@@ -150,6 +151,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
    ASSERT_EQ(map1.new_array_id(), 5);
    ASSERT_EQ(map1.writemask(1), 4);
    ASSERT_EQ(map1.read_swizzle(0), 2);
+   ASSERT_EQ(map1.combined_swizzle(), 0x7);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_no_reswizzle)
@@ -170,6 +172,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xyz_x)
    ASSERT_EQ(map1.new_array_id(), 5);
    ASSERT_EQ(map1.writemask(1), 8);
    ASSERT_EQ(map1.read_swizzle(0), 3);
+   ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_xy)
@@ -181,6 +184,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_xy)
    ASSERT_EQ(map1.writemask(3), 0xC);
    ASSERT_EQ(map1.read_swizzle(0), 2);
    ASSERT_EQ(map1.read_swizzle(1), 3);
+   ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
@@ -192,6 +196,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
    ASSERT_EQ(map1.writemask(9), 0xA);
    ASSERT_EQ(map1.read_swizzle(0), 1);
    ASSERT_EQ(map1.read_swizzle(3), 3);
+   ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 
 using ArrayMergeTest=testing::Test;

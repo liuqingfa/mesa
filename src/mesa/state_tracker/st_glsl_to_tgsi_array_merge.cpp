@@ -148,6 +148,12 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
    reswizzle(true),
    valid(true)
 {
+   evaluate_swizzle_map(reserved_component_bits, orig_component_bits);
+}
+
+void array_remapping::evaluate_swizzle_map(int reserved_component_bits,
+                                            int orig_component_bits)
+{
 #ifndef NDEBUG
    original_writemask = orig_component_bits;
 #endif
@@ -241,6 +247,8 @@ void array_remapping::concat(const array_remapping& map)
    // we remap a valid remapping
    assert(valid);
    target_id = map.target_id;
+   memcpy(read_swizzle_map, map.read_swizzle_map, 4 * sizeof(int));
+   memcpy(writemask_map, map.writemask_map, 4 * sizeof(int));
 }
 
 
@@ -360,6 +368,16 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                                            remapping);
 
    } while (remapped_arrays > 0);
+
+   for (int i = 1; i <= narrays; ++i) {
+      if (remapping[i].is_valid()) {
+         int k = remapping[i].new_array_id();
+         while (remapping[k].is_valid()) {
+            remapping[i].concat(remapping[k]);
+            k = remapping[k].new_array_id();
+         }
+      }
+   }
 
    return true;
 }

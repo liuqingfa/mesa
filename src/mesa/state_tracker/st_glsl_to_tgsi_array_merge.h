@@ -87,10 +87,11 @@ public:
                             const array_remapping& rhs);
 
    void print(std::ostream& os) const;
-
    void concat(const array_remapping& map);
 
 private:
+   void evaluate_swizzle_map(int reserved_component_bits,
+                             int orig_component_bits);
    int target_id;
    uint8_t writemask_map[4];
    int8_t read_swizzle_map[4];

@@ -219,8 +219,6 @@ TEST_F(ArrayMergeTest, ArrayMergeTwoSwizzles)
 
 }
 
-
-
 TEST_F(ArrayMergeTest, SimpleChainMerge)
 {
    vector<array_lifetime> input = {
@@ -235,6 +233,29 @@ TEST_F(ArrayMergeTest, SimpleChainMerge)
 
    vector<array_remapping> result(2);
    get_array_remapping(2, &input[0], &result[0]);
+
+   for (unsigned i = 0; i < expect.size(); ++i)
+      EXPECT_EQ(result[i], expect[i]);
+}
+
+TEST_F(ArrayMergeTest, MergeAndInterleave)
+{
+   vector<array_lifetime> input = {
+      {1, 5, 1, 5, WRITEMASK_X},
+      {2, 4, 6, 7, WRITEMASK_X},
+      {3, 3, 1, 5, WRITEMASK_X},
+      {4, 2, 6, 7, WRITEMASK_X},
+   };
+
+   vector<array_remapping> expect = {
+      {},
+      {1, WRITEMASK_X, WRITEMASK_X},
+      {1},
+      {1, WRITEMASK_X, WRITEMASK_X}
+   };
+
+   vector<array_remapping> result(input.size());
+   get_array_remapping(input.size(), &input[0], &result[0]);
 
    for (unsigned i = 0; i < expect.size(); ++i)
       EXPECT_EQ(result[i], expect[i]);

@@ -8047,6 +8047,7 @@ static int tgsi_load_rat(struct r600_shader_ctx *ctx)
 	const struct util_format_description *desc;
 	unsigned rat_index_mode;
 	unsigned immed_base;
+	unsigned thread_id;
 
 	rat_index_mode = inst->Src[0].Indirect.Index == 2 ? 2 : 0; // CF_INDEX_1 : CF_INDEX_NONE
 
@@ -8058,6 +8059,21 @@ static int tgsi_load_rat(struct r600_shader_ctx *ctx)
 	if (rat_index_mode)
 		egcm_load_index_reg(ctx->bc, 1, false);
 
+	if (ctx->thread_id_gpr == 0) {
+		thread_id = r600_get_temp(ctx);
+
+		r = single_alu_op3(ctx, ALU_OP3_MULADD_UINT24,
+				   thread_id, 1,
+				   EG_V_SQ_ALU_SRC_SE_ID, 0,
+				   V_SQ_ALU_SRC_LITERAL, 256,
+				   EG_V_SQ_ALU_SRC_HW_WAVE_ID, 0);
+		if (r)
+			return r;
+
+	} else
+		thread_id = ctx->thread_id_gpr;
+	
+
 	r600_bytecode_add_cfinst(ctx->bc, CF_OP_MEM_RAT);
 	cf = ctx->bc->cf_last;
 
@@ -8065,7 +8081,7 @@ static int tgsi_load_rat(struct r600_shader_ctx *ctx)
 	cf->rat.inst = V_RAT_INST_NOP_RTN;
 	cf->rat.index_mode = rat_index_mode;
 	cf->output.type = V_SQ_CF_ALLOC_EXPORT_WORD0_SQ_EXPORT_READ_IND;
-	cf->output.gpr = ctx->thread_id_gpr;
+	cf->output.gpr = thread_id;
 	cf->output.index_gpr = idx_gpr;
 	cf->output.comp_mask = 0xf;
 	cf->output.burst_count = 1;
@@ -8086,7 +8102,7 @@ static int tgsi_load_rat(struct r600_shader_ctx *ctx)
 	vtx.buffer_id = immed_base + inst->Src[0].Register.Index;
 	vtx.buffer_index_mode = rat_index_mode;
 	vtx.fetch_type = SQ_VTX_FETCH_NO_INDEX_OFFSET;
-	vtx.src_gpr = ctx->thread_id_gpr;
+	vtx.src_gpr = thread_id;
 	vtx.src_sel_x = 1;
 	vtx.dst_gpr = ctx->file_offset[inst->Dst[0].Register.File] + inst->Dst[0].Register.Index;
 	vtx.dst_sel_x = desc->swizzle[0];
@@ -8384,7 +8400,7 @@ static int tgsi_atomic_op_rat(struct r600_shader_ctx *ctx)
 	unsigned rat_index_mode;
 	unsigned immed_base;
 	unsigned rat_base;
-
+	unsigned thread_id;
 	immed_base = R600_IMAGE_IMMED_RESOURCE_OFFSET;
 	rat_base = ctx->shader->rat_base;
 
@@ -8464,7 +8480,7 @@ static int tgsi_atomic_op_rat(struct r600_shader_ctx *ctx)
 	vtx.buffer_id = immed_base + inst->Src[0].Register.Index;
 	vtx.buffer_index_mode = rat_index_mode;
 	vtx.fetch_type = SQ_VTX_FETCH_NO_INDEX_OFFSET;
-	vtx.src_gpr = ctx->thread_id_gpr;
+	vtx.src_gpr = thread_id;
 	vtx.src_sel_x = 1;
 	vtx.dst_gpr = ctx->file_offset[inst->Dst[0].Register.File] + inst->Dst[0].Register.Index;
 	vtx.dst_sel_x = desc->swizzle[0];

@@ -73,7 +73,7 @@ namespace tgsi_array_remap {
 
 class array_remapping {
 public:
-   array_remapping():valid(false) {}
+   array_remapping():target_id(0), valid(false) {}
    array_remapping(int tid);
    array_remapping(int tid, int res_swizzle, int old_swizzle);
 
@@ -87,7 +87,8 @@ public:
                             const array_remapping& rhs);
 
    void print(std::ostream& os) const;
-   void concat(const array_remapping& map);
+   void propagate_array_id(int new_tid);
+   void propagate_remapping(const array_remapping& map);
 
 private:
    void evaluate_swizzle_map(int reserved_component_bits,
@@ -98,10 +99,7 @@ private:
    bool reswizzle;
    bool valid;
    int swizzle_sum;
-
-#ifndef NDEBUG
    int original_writemask;
-#endif
 };
 
 inline

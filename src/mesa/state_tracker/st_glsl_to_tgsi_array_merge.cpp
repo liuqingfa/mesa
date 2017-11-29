@@ -146,7 +146,8 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
                                  int orig_component_bits):
    target_id(tid),
    reswizzle(true),
-   valid(true)
+   valid(true),
+   original_writemask(orig_component_bits)
 {
    evaluate_swizzle_map(reserved_component_bits, orig_component_bits);
 }
@@ -154,10 +155,6 @@ array_remapping::array_remapping(int tid, int reserved_component_bits,
 void array_remapping::evaluate_swizzle_map(int reserved_component_bits,
                                             int orig_component_bits)
 {
-#ifndef NDEBUG
-   original_writemask = orig_component_bits;
-#endif
-
    for (int i = 0; i < 4; ++i) {
       read_swizzle_map[i] = -1;
    }
@@ -242,7 +239,15 @@ void array_remapping::print(std::ostream& os) const
    }
 }
 
-void array_remapping::concat(const array_remapping& map)
+void array_remapping::propagate_array_id(int new_tid)
+{
+   // we remap a valid remapping
+   assert(valid);
+   target_id = new_tid;
+}
+
+
+void array_remapping::propagate_remapping(const array_remapping& map)
 {
    // we remap a valid remapping
    assert(valid);
@@ -250,7 +255,6 @@ void array_remapping::concat(const array_remapping& map)
    memcpy(read_swizzle_map, map.read_swizzle_map, 4 * sizeof(int));
    memcpy(writemask_map, map.writemask_map, 4 * sizeof(int));
 }
-
 
 bool operator == (const array_remapping& lhs, const array_remapping& rhs)
 {
@@ -286,14 +290,12 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
 
    for (int i = 0; i < narrays; ++i) {
       array_lifetime& ai = alt[i];
-      std::cerr << "Analysing: " << ai << "\n";
 
       if (remapping[ai.get_id()].is_valid())
          continue;
 
       for (int j = 0; j < narrays; ++j) {
          array_lifetime& aj = alt[j];
-         std::cerr << "    vs: " << aj << "\n";
 
          if (i == j || remapping[aj.get_id()].is_valid())
             continue;
@@ -306,9 +308,57 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
          /* ai is a longer array then aj, they both have the same swizzle and
           * the life ranges don't overlap, hence they can be merged.
           */
+         std::cerr << "Merge " << aj << " with " << ai << "\n";
          remapping[aj.get_id()] = array_remapping(ai.get_id());
          ai.augment_lifetime(aj.get_begin(), aj.get_end());
-         std::cerr << "       --> Merge \n";
+
+         for (int i = 1; i <= narrays; ++i) {
+            if (remapping[i].new_array_id() == aj.get_id()) {
+               std::cerr << "Remap propagate id " << i << " -> " << aj.get_id() << "\n";
+               remapping[i].propagate_array_id(remapping[aj.get_id()].new_array_id());
+            }
+         }
+
+         ++remaps;
+      }
+   }
+   return remaps;
+}
+
+static int merge_arrays(int narrays, array_lifetime *alt,
+                        array_remapping *remapping)
+{
+   int remaps = 0;
+
+   for (int i = 0; i < narrays; ++i) {
+      array_lifetime& ai = alt[i];
+
+      if (remapping[ai.get_id()].is_valid())
+         continue;
+
+      for (int j = 0; j < narrays; ++j) {
+         array_lifetime& aj = alt[j];
+
+         if (i == j || remapping[aj.get_id()].is_valid())
+            continue;
+
+         if ((ai.get_array_length() < aj.get_array_length()) ||
+             !ai.can_merge_with(aj))
+            continue;
+
+         /* ai is a longer array then aj, they both have the same swizzle and
+          * the life ranges don't overlap, hence they can be merged.
+          */
+         std::cerr << "Merge " << aj << " with " << ai << "\n";
+         remapping[aj.get_id()] = array_remapping(ai.get_id());
+         ai.augment_lifetime(aj.get_begin(), aj.get_end());
+
+         for (int i = 1; i <= narrays; ++i) {
+            if (remapping[i].new_array_id() == aj.get_id()) {
+               std::cerr << "Remap propagate id " << i << " -> " << aj.get_id() << "\n";
+               remapping[i].propagate_array_id(remapping[aj.get_id()].new_array_id());
+            }
+         }
 
          ++remaps;
       }
@@ -322,29 +372,40 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
    int remaps = 0;
    for (int i = 0; i < narrays; ++i) {
       array_lifetime& ai = alt[i];
-      std::cerr << "Analysing: " << ai << "\n";
       if (remapping[ai.get_id()].is_valid())
          continue;
 
       for (int j = 0; j < narrays; ++j) {
          array_lifetime& aj = alt[j];
-         std::cerr << "    vs: " << aj << "\n";
+
          if (i == j || remapping[aj.get_id()].is_valid())
             continue;
 
          if ((ai.get_array_length() < aj.get_array_length()) ||
-             (ai.get_ncomponents() + aj.get_ncomponents() > 4))
+             (ai.get_ncomponents() + aj.get_ncomponents() > 4) ||
+             ai.can_merge_with(aj))
             continue;
 
-         /* ai is a longer array then aj, and together they don
-          *
+         /* ai is a longer array then aj, and together they don't occupy at
+          * most all four components
           */
+         std::cerr << "Interleave " << aj << " with " << ai << "\n";
          remapping[aj.get_id()] = array_remapping(ai.get_id(), ai.get_swizzle(),
                                         aj.get_swizzle());
          ai.augment_lifetime(aj.get_begin(), aj.get_end());
          ai.set_swizzle(remapping[aj.get_id()].combined_swizzle());
 
-         std::cerr << "      --> Interleave\n";
+         /* If any array was merged with aj this one before, we need to propagate
+          * the swizzle changes
+          */
+         for (int i = 1; i <= narrays; ++i) {
+            if (remapping[i].new_array_id() == aj.get_id()) {
+               std::cerr << "Remap propagate " << i << " -> " << aj.get_id() << "\n";
+               std::cerr << "   remap was: " << remapping[i] << "\n";
+               remapping[i].propagate_remapping(remapping[aj.get_id()]);
+               std::cerr << "   now: " << remapping[i] << "\n";
+            }
+         }
 
          ++remaps;
       }
@@ -369,15 +430,7 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
 
    } while (remapped_arrays > 0);
 
-   for (int i = 1; i <= narrays; ++i) {
-      if (remapping[i].is_valid()) {
-         int k = remapping[i].new_array_id();
-         while (remapping[k].is_valid()) {
-            remapping[i].concat(remapping[k]);
-            k = remapping[k].new_array_id();
-         }
-      }
-   }
+   remapped_arrays = merge_arrays(narrays, arr_lifetimes, remapping);
 
    return true;
 }

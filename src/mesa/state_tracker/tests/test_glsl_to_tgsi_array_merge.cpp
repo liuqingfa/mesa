@@ -200,7 +200,7 @@ TEST_F(ArrayMergeTest, ArrayMergeTwoSwizzles)
 {
    vector<array_lifetime> alt = {
       {1, 4, 1, 5, WRITEMASK_X},
-      {1, 4, 2, 5, WRITEMASK_X},
+      {2, 4, 2, 5, WRITEMASK_X},
    };
 
    vector<array_remapping> expect = {
@@ -208,14 +208,12 @@ TEST_F(ArrayMergeTest, ArrayMergeTwoSwizzles)
       {1, WRITEMASK_X, WRITEMASK_X},
    };
 
-   vector<array_remapping> result(2);
+   vector<array_remapping> result(alt.size() + 1);
 
    get_array_remapping(2, &alt[0], &result[0]);
 
-   ASSERT_EQ(alt.size(), result.size());
-
-   EXPECT_EQ(result[0], expect[0]);
-   EXPECT_EQ(result[1], expect[1]);
+   EXPECT_EQ(result[1], expect[0]);
+   EXPECT_EQ(result[2], expect[1]);
 
 }
 
@@ -231,11 +229,11 @@ TEST_F(ArrayMergeTest, SimpleChainMerge)
       {1},
    };
 
-   vector<array_remapping> result(2);
+   vector<array_remapping> result(3);
    get_array_remapping(2, &input[0], &result[0]);
 
    for (unsigned i = 0; i < expect.size(); ++i)
-      EXPECT_EQ(result[i], expect[i]);
+      EXPECT_EQ(result[i + 1], expect[i]);
 }
 
 TEST_F(ArrayMergeTest, MergeAndInterleave)
@@ -249,14 +247,14 @@ TEST_F(ArrayMergeTest, MergeAndInterleave)
 
    vector<array_remapping> expect = {
       {},
-      {1, WRITEMASK_X, WRITEMASK_X},
       {1},
-      {1, WRITEMASK_X, WRITEMASK_X}
+      {1, WRITEMASK_X, WRITEMASK_X},
+      {3} /* todo: add remapping */
    };
 
-   vector<array_remapping> result(input.size());
+   vector<array_remapping> result(input.size() + 1);
    get_array_remapping(input.size(), &input[0], &result[0]);
 
    for (unsigned i = 0; i < expect.size(); ++i)
-      EXPECT_EQ(result[i], expect[i]);
+      EXPECT_EQ(result[i + 1], expect[i]);
 }

@@ -236,6 +236,14 @@ void array_remapping::print(std::ostream& os) const
    }
 }
 
+void array_remapping::concat(const array_remapping& map)
+{
+   // we remap a valid remapping
+   assert(valid);
+   target_id = map.target_id;
+}
+
+
 bool operator == (const array_remapping& lhs, const array_remapping& rhs)
 {
    if (!lhs.valid)
@@ -272,14 +280,14 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
       array_lifetime& ai = alt[i];
       std::cerr << "Analysing: " << ai << "\n";
 
-      if (remapping[i].is_valid())
+      if (remapping[ai.get_id()].is_valid())
          continue;
 
       for (int j = 0; j < narrays; ++j) {
          array_lifetime& aj = alt[j];
          std::cerr << "    vs: " << aj << "\n";
 
-         if (i == j || remapping[j].is_valid())
+         if (i == j || remapping[aj.get_id()].is_valid())
             continue;
 
          if ((ai.get_array_length() < aj.get_array_length()) ||
@@ -290,7 +298,7 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
          /* ai is a longer array then aj, they both have the same swizzle and
           * the life ranges don't overlap, hence they can be merged.
           */
-         remapping[j] = array_remapping(ai.get_id());
+         remapping[aj.get_id()] = array_remapping(ai.get_id());
          ai.augment_lifetime(aj.get_begin(), aj.get_end());
          std::cerr << "       --> Merge \n";
 
@@ -307,13 +315,13 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
    for (int i = 0; i < narrays; ++i) {
       array_lifetime& ai = alt[i];
       std::cerr << "Analysing: " << ai << "\n";
-      if (remapping[i].is_valid())
+      if (remapping[ai.get_id()].is_valid())
          continue;
 
       for (int j = 0; j < narrays; ++j) {
          array_lifetime& aj = alt[j];
          std::cerr << "    vs: " << aj << "\n";
-         if (i == j || remapping[j].is_valid())
+         if (i == j || remapping[aj.get_id()].is_valid())
             continue;
 
          if ((ai.get_array_length() < aj.get_array_length()) ||
@@ -323,11 +331,10 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
          /* ai is a longer array then aj, and together they don
           *
           */
-         remapping[j] = array_remapping(ai.get_id(), ai.get_swizzle(),
+         remapping[aj.get_id()] = array_remapping(ai.get_id(), ai.get_swizzle(),
                                         aj.get_swizzle());
          ai.augment_lifetime(aj.get_begin(), aj.get_end());
-         ai.set_swizzle(remapping[j].combined_swizzle());
-
+         ai.set_swizzle(remapping[aj.get_id()].combined_swizzle());
 
          std::cerr << "      --> Interleave\n";
 

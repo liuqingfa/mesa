@@ -88,6 +88,8 @@ public:
 
    void print(std::ostream& os) const;
 
+   void concat(const array_remapping& map);
+
 private:
    int target_id;
    uint8_t writemask_map[4];

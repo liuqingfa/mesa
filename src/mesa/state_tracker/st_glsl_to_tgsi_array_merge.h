@@ -51,6 +51,8 @@ public:
    bool contains_access_range(const array_lifetime& other) const;
    int get_ncomponents() const;
 
+   void print(std::ostream& os) const;
+
 private:
    unsigned array_id;
    unsigned array_length;
@@ -59,6 +61,13 @@ private:
    int access_swizzle;
    int ncomponents;
 };
+
+inline
+std::ostream& operator << (std::ostream& os, const array_lifetime& lt) {
+   lt.print(os);
+   return os;
+}
+
 
 namespace tgsi_array_remap {
 
@@ -82,7 +91,7 @@ public:
 private:
    int target_id;
    uint8_t writemask_map[4];
-   uint8_t read_swizzle_map[4];
+   int8_t read_swizzle_map[4];
    bool reswizzle;
    bool valid;
    int swizzle_sum;

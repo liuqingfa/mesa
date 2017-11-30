@@ -591,6 +591,7 @@ struct r600_context {
 	struct r600_resource	*trace_buf;
 	unsigned		trace_id;
 
+	bool cmd_buf_is_compute;
 	struct pipe_resource *append_fence;
 	uint32_t append_fence_id;
 };
@@ -871,7 +872,7 @@ static inline void r600_store_config_reg_seq(struct r600_command_buffer *cb, uns
 {
 	assert(reg < R600_CONTEXT_REG_OFFSET);
 	assert(cb->num_dw+2+num <= cb->max_num_dw);
-	cb->buf[cb->num_dw++] = PKT3(PKT3_SET_CONFIG_REG, num, 0);
+	cb->buf[cb->num_dw++] = PKT3(PKT3_SET_CONFIG_REG, num, 0) | cb->pkt_flags;
 	cb->buf[cb->num_dw++] = (reg - R600_CONFIG_REG_OFFSET) >> 2;
 }
 

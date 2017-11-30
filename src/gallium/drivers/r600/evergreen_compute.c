@@ -805,8 +805,14 @@ static void compute_emit_cs(struct r600_context *rctx,
 	radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_PS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 	radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 	radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
-	if (rctx->cs_shader_state.shader->ir_type == PIPE_SHADER_IR_TGSI)
-		evergreen_emit_atomic_buffer_save(rctx, true, combined_atomics, &atomic_used_mask);
+	if (rctx->b.chip_class >= CAYMAN) {
+		/* DEALLOC_STATE prevents the GPU from hanging when a
+		 * SURFACE_SYNC packet is emitted some time after a DISPATCH_DIRECT
+		 * with any of the CB*_DEST_BASE_ENA or DB_DEST_BASE_ENA bits set.
+		 */
+		radeon_emit(cs, PKT3C(PKT3_DEALLOC_STATE, 0, 0));
+		radeon_emit(cs, 0);
+	}
 	/* XXX evergreen_flush_emit() hardcodes the CP_COHER_SIZE to 0xffffffff
 	 */
 	rctx->b.flags |= R600_CONTEXT_INV_CONST_CACHE |
@@ -817,16 +823,8 @@ static void compute_emit_cs(struct r600_context *rctx,
 	r600_flush_emit(rctx);
 	rctx->b.flags = 0;
 
-	if (rctx->b.chip_class >= CAYMAN) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
-		radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
-		/* DEALLOC_STATE prevents the GPU from hanging when a
-		 * SURFACE_SYNC packet is emitted some time after a DISPATCH_DIRECT
-		 * with any of the CB*_DEST_BASE_ENA or DB_DEST_BASE_ENA bits set.
-		 */
-		radeon_emit(cs, PKT3C(PKT3_DEALLOC_STATE, 0, 0));
-		radeon_emit(cs, 0);
-	}
+	if (rctx->cs_shader_state.shader->ir_type == PIPE_SHADER_IR_TGSI)
+		evergreen_emit_atomic_buffer_save(rctx, true, combined_atomics, &atomic_used_mask);
 
 #if 0
 	COMPUTE_DBG(rctx->screen, "cdw: %i\n", cs->cdw);

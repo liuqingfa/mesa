@@ -4636,6 +4636,77 @@ static void evergreen_emit_set_append_cnt(struct r600_context *rctx,
 	radeon_emit(cs, reloc);
 }
 
+static void evergreen_emit_event_write_eos(struct r600_context *rctx,
+					   struct r600_shader_atomic *atomic,
+					   struct r600_resource *resource,
+					   uint32_t pkt_flags)
+{
+	struct radeon_winsys_cs *cs = rctx->b.gfx.cs;
+	uint32_t event = EVENT_TYPE_PS_DONE;
+	uint32_t base_reg_0 = R_02872C_GDS_APPEND_COUNT_0;
+	uint32_t reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx,
+						   resource,
+						   RADEON_USAGE_WRITE,
+						   RADEON_PRIO_SHADER_RW_BUFFER);
+	uint64_t dst_offset = resource->gpu_address + (atomic->start * 4);
+	uint32_t reg_val = (base_reg_0 + atomic->hw_idx * 4) >> 2;
+
+	if (pkt_flags == RADEON_CP_PACKET3_COMPUTE_MODE)
+		event = EVENT_TYPE_CS_DONE;
+	radeon_emit(cs, PKT3(PKT3_EVENT_WRITE_EOS, 3, 0) | pkt_flags);
+	radeon_emit(cs, EVENT_TYPE(event) | EVENT_INDEX(6));
+	radeon_emit(cs, (dst_offset) & 0xffffffff);
+	radeon_emit(cs, (0 << 29) | ((dst_offset >> 32) & 0xff));
+	radeon_emit(cs, reg_val);
+	radeon_emit(cs, PKT3(PKT3_NOP, 0, 0));
+	radeon_emit(cs, reloc);
+}
+
+/* writes count from a buffer into GDS */
+static void cayman_write_count_to_gds(struct r600_context *rctx,
+				      struct r600_shader_atomic *atomic,
+				      struct r600_resource *resource,
+				      uint32_t pkt_flags)
+{
+	struct radeon_winsys_cs *cs = rctx->b.gfx.cs;
+	unsigned reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx,
+						   resource,
+						   RADEON_USAGE_READ,
+						   RADEON_PRIO_SHADER_RW_BUFFER);
+	uint64_t dst_offset = resource->gpu_address + (atomic->start * 4);
+
+	radeon_emit(cs, PKT3(PKT3_CP_DMA, 4, 0) | pkt_flags);
+	radeon_emit(cs, dst_offset & 0xffffffff);
+	radeon_emit(cs, PKT3_CP_DMA_CP_SYNC | PKT3_CP_DMA_DST_SEL(1) | ((dst_offset >> 32) & 0xff));// GDS
+	radeon_emit(cs, atomic->hw_idx * 4);
+	radeon_emit(cs, 0);
+	radeon_emit(cs, PKT3_CP_DMA_CMD_DAS | 4);
+	radeon_emit(cs, PKT3(PKT3_NOP, 0, 0));
+	radeon_emit(cs, reloc);
+}
+
+static void cayman_read_count_from_gds(struct r600_context *rctx,
+				struct r600_shader_atomic *atomic,
+				struct r600_resource *resource,
+				uint32_t pkt_flags)
+{
+	struct radeon_winsys_cs *cs = rctx->b.gfx.cs;
+	unsigned reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx,
+						   resource,
+						   RADEON_USAGE_READ,
+						   RADEON_PRIO_SHADER_RW_BUFFER);
+	uint64_t dst_offset = resource->gpu_address + (atomic->start * 4);
+
+	radeon_emit(cs, PKT3(PKT3_CP_DMA, 4, 0) | pkt_flags);
+	radeon_emit(cs, atomic->hw_idx * 4);
+	radeon_emit(cs, PKT3_CP_DMA_CP_SYNC | PKT3_CP_DMA_SRC_SEL(1));// GDS
+	radeon_emit(cs, dst_offset & 0xffffffff);
+	radeon_emit(cs, (dst_offset >> 32) & 0xff);
+	radeon_emit(cs, PKT3_CP_DMA_CMD_SAS | 4);
+	radeon_emit(cs, PKT3(PKT3_NOP, 0, 0));
+	radeon_emit(cs, reloc);
+}
+
 bool evergreen_emit_atomic_buffer_setup(struct r600_context *rctx,
 					struct r600_pipe_shader *cs_shader,
 					struct r600_shader_atomic *combined_atomics,
@@ -4690,7 +4761,10 @@ bool evergreen_emit_atomic_buffer_setup(struct r600_context *rctx,
 		struct r600_resource *resource = r600_resource(astate->buffer[atomic->buffer_id].buffer);
 		assert(resource);
 
-		evergreen_emit_set_append_cnt(rctx, atomic, resource, pkt_flags);
+		if (rctx->b.chip_class == CAYMAN)
+			cayman_write_count_to_gds(rctx, atomic, resource, pkt_flags);
+		else
+			evergreen_emit_set_append_cnt(rctx, atomic, resource, pkt_flags);
 	}
 	*atomic_used_mask_p = atomic_used_mask;
 	return true;
@@ -4704,15 +4778,13 @@ void evergreen_emit_atomic_buffer_save(struct r600_context *rctx,
 	struct radeon_winsys_cs *cs = rctx->b.gfx.cs;
 	struct r600_atomic_buffer_state *astate = &rctx->atomic_buffer_state;
 	uint32_t pkt_flags = 0;
-	uint32_t event = EVENT_TYPE_PS_DONE;
 	uint32_t mask = astate->enabled_mask;
 	uint64_t dst_offset;
 	unsigned reloc;
+	unsigned event = EVENT_TYPE_PS_DONE;
 
-	if (is_compute) {
+	if (is_compute)
 		pkt_flags = RADEON_CP_PACKET3_COMPUTE_MODE;
-		event = EVENT_TYPE_CS_DONE;
-	}
 
 	mask = *atomic_used_mask_p;
 	if (!mask)
@@ -4724,22 +4796,16 @@ void evergreen_emit_atomic_buffer_save(struct r600_context *rctx,
 		struct r600_resource *resource = r600_resource(astate->buffer[atomic->buffer_id].buffer);
 		assert(resource);
 
-		uint32_t base_reg_0 = R_02872C_GDS_APPEND_COUNT_0;
-		reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx,
-							   resource,
-							   RADEON_USAGE_WRITE,
-							   RADEON_PRIO_SHADER_RW_BUFFER);
-		dst_offset = resource->gpu_address + (atomic->start * 4);
-		uint32_t reg_val = (base_reg_0 + atomic->hw_idx * 4) >> 2;
-
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE_EOS, 3, 0) | pkt_flags);
-		radeon_emit(cs, EVENT_TYPE(event) | EVENT_INDEX(6));
-		radeon_emit(cs, (dst_offset) & 0xffffffff);
-		radeon_emit(cs, (0 << 29) | ((dst_offset >> 32) & 0xff));
-		radeon_emit(cs, reg_val);
-		radeon_emit(cs, PKT3(PKT3_NOP, 0, 0));
-		radeon_emit(cs, reloc);
+		if (rctx->b.chip_class == CAYMAN)
+			cayman_read_count_from_gds(rctx, atomic, resource, pkt_flags);
+		else
+			evergreen_emit_event_write_eos(rctx, atomic, resource, pkt_flags);
 	}
+	if (rctx->b.chip_class == CAYMAN)
+		return;
+
+	if (pkt_flags == RADEON_CP_PACKET3_COMPUTE_MODE)
+		event = EVENT_TYPE_CS_DONE;
 	++rctx->append_fence_id;
 	reloc = radeon_add_to_buffer_list(&rctx->b, &rctx->b.gfx,
 					  r600_resource(rctx->append_fence),

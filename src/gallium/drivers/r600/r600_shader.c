@@ -7875,11 +7875,21 @@ static int tgsi_load_gds(struct r600_shader_ctx *ctx)
 	struct r600_bytecode_gds gds;
 	int uav_id = 0;
 	int uav_index_mode = 0;
-
+	bool is_cm = (ctx->bc->chip_class == CAYMAN);
+	
 	uav_id = find_hw_atomic_counter(ctx, &inst->Src[0]);
 
 	if (inst->Src[0].Register.Indirect)
 		uav_index_mode = 2;
+
+	if (is_cm) {
+		r = single_alu_op2(ctx, ALU_OP1_MOV,
+				   ctx->temp_reg, 0,
+				   V_SQ_ALU_SRC_LITERAL, uav_id * 4,
+				   0, 0);
+		if (r)
+			return r;
+	}
 
 	memset(&gds, 0, sizeof(struct r600_bytecode_gds));
 	gds.op = FETCH_OP_GDS_READ_RET;
@@ -7887,7 +7897,7 @@ static int tgsi_load_gds(struct r600_shader_ctx *ctx)
 	gds.uav_id = uav_id;
 	gds.uav_index_mode = uav_index_mode;
 	gds.src_gpr = ctx->temp_reg;
-	gds.src_sel_x = 4;
+	gds.src_sel_x = is_cm ? 0 : 4;
 	gds.src_sel_y = 4;
 	gds.src_sel_z = 4;
 	gds.dst_sel_x = 0;
@@ -7895,7 +7905,7 @@ static int tgsi_load_gds(struct r600_shader_ctx *ctx)
 	gds.dst_sel_z = 7;
 	gds.dst_sel_w = 7;
 	gds.src_gpr2 = ctx->temp_reg;
-	gds.alloc_consume = 1;
+	gds.alloc_consume = !is_cm;
 	r = r600_bytecode_add_gds(ctx->bc, &gds);
 	if (r)
 		return r;
@@ -8540,6 +8550,7 @@ static int tgsi_atomic_op_gds(struct r600_shader_ctx *ctx)
 	int r;
 	int uav_id = 0;
 	int uav_index_mode = 0;
+	bool is_cm = (ctx->bc->chip_class == CAYMAN);
 
 	if (gds_op == -1) {
 		fprintf(stderr, "unknown GDS op for opcode %d\n", inst->Instruction.Opcode);
@@ -8559,7 +8570,7 @@ static int tgsi_atomic_op_gds(struct r600_shader_ctx *ctx)
 		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
 		alu.op = ALU_OP1_MOV;
 		alu.dst.sel = ctx->temp_reg;
-		alu.dst.chan = 0;
+		alu.dst.chan = is_cm ? 1 : 0;
 		alu.src[0].sel = V_SQ_ALU_SRC_LITERAL;
 		alu.src[0].value = abs_value;
 		alu.last = 1;
@@ -8571,7 +8582,7 @@ static int tgsi_atomic_op_gds(struct r600_shader_ctx *ctx)
 		memset(&alu, 0, sizeof(struct r600_bytecode_alu));
 		alu.op = ALU_OP1_MOV;
 		alu.dst.sel = ctx->temp_reg;
-		alu.dst.chan = 0;
+		alu.dst.chan = is_cm ? 1 : 0;
 		r600_bytecode_src(&alu.src[0], &ctx->src[2], 0);
 		alu.last = 1;
 		alu.dst.write = 1;
@@ -8579,7 +8590,15 @@ static int tgsi_atomic_op_gds(struct r600_shader_ctx *ctx)
 		if (r)
 			return r;
 	}
-
+	if (is_cm) {
+		r = single_alu_op2(ctx, ALU_OP1_MOV,
+				   ctx->temp_reg, 0,
+				   V_SQ_ALU_SRC_LITERAL, uav_id * 4,
+				   0, 0);
+		if (r)
+			return r;
+	}
+	
 	memset(&gds, 0, sizeof(struct r600_bytecode_gds));
 	gds.op = gds_op;
 	gds.dst_gpr = ctx->file_offset[inst->Dst[0].Register.File] + inst->Dst[0].Register.Index;
@@ -8587,14 +8606,15 @@ static int tgsi_atomic_op_gds(struct r600_shader_ctx *ctx)
 	gds.uav_index_mode = uav_index_mode;
 	gds.src_gpr = ctx->temp_reg;
 	gds.src_gpr2 = ctx->temp_reg;
-	gds.src_sel_x = 4;
-	gds.src_sel_y = 0;
+	gds.src_sel_x = is_cm ? 0 : 4;
+	gds.src_sel_y = is_cm ? 1 : 0;
 	gds.src_sel_z = 4;
 	gds.dst_sel_x = 0;
 	gds.dst_sel_y = 7;
 	gds.dst_sel_z = 7;
 	gds.dst_sel_w = 7;
-	gds.alloc_consume = 1;
+	gds.alloc_consume = !is_cm;
+
 	r = r600_bytecode_add_gds(ctx->bc, &gds);
 	if (r)
 		return r;

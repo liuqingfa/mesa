@@ -22,6 +22,8 @@
  */
 
 #include "st_glsl_to_tgsi_array_merge.h"
+
+#include <program/prog_instruction.h>
 #include <util/u_math.h>
 #include <ostream>
 #include <cassert>
@@ -179,7 +181,7 @@ void array_remapping::evaluate_swizzle_map(int reserved_component_bits,
    swizzle_sum = reserved_component_bits;
 }
 
-int array_remapping::writemask(int writemask_to_map) const
+int array_remapping::map_writemask(int writemask_to_map) const
 {
    assert(valid);
 
@@ -206,6 +208,19 @@ int array_remapping::read_swizzle(int swizzle_to_map) const
 
    assert(read_swizzle_map[swizzle_to_map] >= 0);
    return read_swizzle_map[swizzle_to_map];
+}
+
+uint16_t array_remapping::map_swizzles(uint16_t old_swizzle) const
+{
+   if (!reswizzle)
+      return old_swizzle;
+
+   uint16_t out_swizzle = 0;
+   for (int idx = 0; idx < 4; ++idx) {
+     uint16_t swz = read_swizzle(GET_SWZ(old_swizzle, idx));
+     out_swizzle |= swz << 3 * idx;
+   }
+   return out_swizzle;
 }
 
 void array_remapping::print(std::ostream& os) const
@@ -417,6 +432,7 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
 bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                          array_remapping *remapping)
 {
+   int total_remapped_arrays = 0;
    int remapped_arrays;
 
    do {
@@ -428,23 +444,88 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                                            arr_lifetimes,
                                            remapping);
 
+      total_remapped_arrays += remapped_arrays;
    } while (remapped_arrays > 0);
 
-   remapped_arrays = merge_arrays(narrays, arr_lifetimes, remapping);
+   total_remapped_arrays += merge_arrays(narrays, arr_lifetimes, remapping);
 
-   return true;
+   return total_remapped_arrays > 0;
 }
 
 }
 
+using namespace tgsi_array_remap;
 
 int  merge_arrays(void *mem_ctx,
                   int narrays,
                   unsigned *array_sizes,
                   exec_list *instructions,
-                  const struct array_lifetime *arr_lifetimes)
+                  struct array_lifetime *arr_lifetimes)
 {
 
+   array_remapping *map= new array_remapping[narrays +1];
 
-   return narrays;
+   if (!get_array_remapping(narrays, arr_lifetimes, map)) {
+      delete[] map;
+      return narrays;
+   }
+
+   /* re-calculate arrays */
+   int *idx_map = ralloc_array(mem_ctx, int, narrays + 1);
+   unsigned *old_sizes = ralloc_array(idx_map, unsigned, narrays + 1);
+   memcpy(old_sizes, array_sizes, sizeof(unsigned) * narrays);
+
+   int new_narrays = 0;
+   for (int i = 1; i <= narrays; ++i) {
+      if (!map[i].is_valid()) {
+         ++new_narrays;
+         idx_map[i] = new_narrays;
+         array_sizes[new_narrays] = old_sizes[i];
+         std::cerr << "Array " << i << " is now " << new_narrays << "\n";
+      }
+   }
+
+   for (int i = 1; i <= narrays; ++i)
+      if (map[i].is_valid()) {
+         map[i].propagate_array_id(idx_map[map[i].new_array_id()]);
+         std::cerr << "Propagate mapping " << i << "("<< map[i].new_array_id()
+                   <<  ") to " << idx_map[map[i].new_array_id()] << "\n";
+      }
+
+   foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
+      for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
+         st_src_reg& src = inst->src[j];
+         if (src.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.new_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < inst->tex_offset_num_offset; j++) {
+         st_src_reg& src = inst->tex_offsets[j];
+         if (src.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.new_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < num_inst_dst_regs(inst); j++) {
+         st_dst_reg& dst = inst->dst[j];
+         if (dst.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[dst.array_id];
+            if (m.is_valid()) {
+               dst.array_id = m.new_array_id();
+               dst.writemask = m.map_writemask(dst.writemask);
+            }
+         }
+      }
+   }
+
+   ralloc_free(idx_map);
+   delete[] map;
+   return new_narrays;
 }

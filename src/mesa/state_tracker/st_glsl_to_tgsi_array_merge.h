@@ -77,8 +77,9 @@ public:
    array_remapping(int tid);
    array_remapping(int tid, int res_swizzle, int old_swizzle);
 
-   int writemask(int original_bits) const;
+   int map_writemask(int original_bits) const;
    int read_swizzle(int original_bits) const;
+   uint16_t map_swizzles(uint16_t old_swizzle) const;
    int new_array_id() const {return target_id;}
    int combined_swizzle() const {return swizzle_sum;}
    bool is_valid() const {return valid;}
@@ -118,6 +119,6 @@ int merge_arrays(void *mem_ctx,
                  int narrays,
                  unsigned *array_sizes,
                  exec_list *instructions,
-                 const struct array_lifetime *arr_lifetimes);
+                 struct array_lifetime *arr_lifetimes);
 
 #endif

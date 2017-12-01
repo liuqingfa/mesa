@@ -37,7 +37,7 @@ array_lifetime::array_lifetime():
    first_access(0),
    last_access(0),
    component_access_mask(0),
-   component_count(0)
+   used_component_count(0)
 {
 }
 
@@ -47,7 +47,7 @@ array_lifetime::array_lifetime(unsigned aid, unsigned alength):
    first_access(0),
    last_access(0),
    component_access_mask(0),
-   component_count(0)
+   used_component_count(0)
 {
 }
 
@@ -58,7 +58,7 @@ array_lifetime::array_lifetime(unsigned aid, unsigned alength, int begin,
    first_access(begin),
    last_access(end),
    component_access_mask(sw),
-   component_count(util_bitcount(sw))
+   used_component_count(util_bitcount(sw))
 {
 }
 
@@ -68,10 +68,10 @@ void array_lifetime::set_lifetime(int _begin, int _end)
    set_end(_end);
 }
 
-void array_lifetime::set_access_mask(int sw)
+void array_lifetime::set_access_mask(int mask)
 {
-   component_access_mask = sw;
-   component_count = util_bitcount(sw);
+   component_access_mask = mask;
+   used_component_count = util_bitcount(mask);
 }
 
 void array_lifetime::merge_lifetime(int _begin, int _end)
@@ -82,11 +82,6 @@ void array_lifetime::merge_lifetime(int _begin, int _end)
       last_access = _end;
 }
 
-int array_lifetime::ncomponents() const
-{
-   return component_count;
-}
-
 void array_lifetime::print(std::ostream& os) const
 {
    os << "[id:" << id
@@ -94,11 +89,11 @@ void array_lifetime::print(std::ostream& os) const
       << ", (b:" << first_access
       << ", e:" << last_access
       << "), sw:" << component_access_mask
-      << ", nc:" << component_count
+      << ", nc:" << used_component_count
       << "]";
 }
 
-bool array_lifetime::can_merge_with(const array_lifetime& other) const
+bool array_lifetime::time_doesnt_overlap(const array_lifetime& other) const
 {
    return (other.last_access < first_access || last_access < other.first_access);
 }
@@ -119,37 +114,41 @@ array_remapping::array_remapping(int tid):
 array_remapping::array_remapping(int tid, int reserved_component_bits,
                                  int orig_component_bits):
    target_id(tid),
-   reswizzle(true),
-   original_writemask(orig_component_bits)
+   original_writemask(orig_component_bits),
+   reswizzle(true)
 {
    evaluate_swizzle_map(reserved_component_bits, orig_component_bits);
 }
 
-void array_remapping::evaluate_swizzle_map(int reserved_component_bits,
-                                            int orig_component_bits)
+void array_remapping::evaluate_swizzle_map(uint8_t reserved_component_mask,
+                                           uint8_t orig_component_mask)
 {
    for (int i = 0; i < 4; ++i) {
       read_swizzle_map[i] = -1;
+      writemask_map[i] = 0;
    }
 
-   int src_swizzle = 1;
-   int free_swizzle = 1;
+   int src_swizzle_bit = 1;
+   int next_free_swizzle_bit = 1;
    int k = 0;
-   for (int i = 0; i < 4; ++i, src_swizzle <<= 1) {
-      writemask_map[i] = 0;
-      if (!(src_swizzle & orig_component_bits))
+
+   for (int i = 0; i < 4; ++i, src_swizzle_bit <<= 1) {
+
+      if (!(src_swizzle_bit & orig_component_mask))
          continue;
 
-      while (reserved_component_bits & free_swizzle) {
-         free_swizzle <<= 1;
+      while (reserved_component_mask & next_free_swizzle_bit) {
+         next_free_swizzle_bit <<= 1;
          ++k;
+         assert(k < 4);
       }
+
       read_swizzle_map[i] = k;
-      writemask_map[i] = free_swizzle;
-      reserved_component_bits |= free_swizzle;
-      assert(k < 4);
+      writemask_map[i] = next_free_swizzle_bit;
+      reserved_component_mask |= next_free_swizzle_bit;
    }
-   swizzle_sum = reserved_component_bits;
+
+   summary_component_mask = reserved_component_mask;
 }
 
 int array_remapping::map_writemask(int writemask_to_map) const
@@ -282,7 +281,7 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
 
          if ((ai.array_length() < aj.array_length()) ||
              (ai.access_mask() !=  aj.access_mask()) ||
-             !ai.can_merge_with(aj))
+             !ai.time_doesnt_overlap(aj))
             continue;
 
          /* ai is a longer array then aj, they both have the same swizzle and
@@ -293,9 +292,9 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
          ai.merge_lifetime(aj.begin(), aj.end());
 
          for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].get_target_array_id() == aj.array_id()) {
+            if (remapping[k].target_array_id() == aj.array_id()) {
                std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
-               remapping[k].set_target_id(remapping[aj.array_id()].get_target_array_id());
+               remapping[k].set_target_id(remapping[aj.array_id()].target_array_id());
             }
          }
 
@@ -323,7 +322,7 @@ static int merge_arrays(int narrays, array_lifetime *alt,
             continue;
 
          if ((ai.array_length() < aj.array_length()) ||
-             !ai.can_merge_with(aj))
+             !ai.time_doesnt_overlap(aj))
             continue;
 
          /* ai is a longer array then aj, they both have the same swizzle and
@@ -334,9 +333,9 @@ static int merge_arrays(int narrays, array_lifetime *alt,
          ai.merge_lifetime(aj.begin(), aj.end());
 
          for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].get_target_array_id() == aj.array_id()) {
+            if (remapping[k].target_array_id() == aj.array_id()) {
                std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
-               remapping[k].set_target_id(remapping[aj.array_id()].get_target_array_id());
+               remapping[k].set_target_id(remapping[aj.array_id()].target_array_id());
             }
          }
 
@@ -362,8 +361,8 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
             continue;
 
          if ((ai.array_length() < aj.array_length()) ||
-             (ai.ncomponents() + aj.ncomponents() > 4) ||
-             ai.can_merge_with(aj))
+             (ai.used_components() + aj.used_components() > 4) ||
+             ai.time_doesnt_overlap(aj))
             continue;
 
          /* ai is a longer array then aj, and together they don't occupy at
@@ -373,13 +372,13 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
          remapping[aj.array_id()] = array_remapping(ai.array_id(), ai.access_mask(),
                                         aj.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
-         ai.set_access_mask(remapping[aj.array_id()].combined_swizzle());
+         ai.set_access_mask(remapping[aj.array_id()].combined_access_mask());
 
          /* If any array was merged with aj this one before, we need to propagate
           * the swizzle changes
           */
          for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].get_target_array_id() == aj.array_id()) {
+            if (remapping[k].target_array_id() == aj.array_id()) {
                std::cerr << "Remap propagate " << k << " -> " << aj.array_id() << "\n";
                std::cerr << "   remap was: " << remapping[k] << "\n";
                remapping[k].propagate_remapping(remapping[aj.array_id()]);
@@ -448,9 +447,9 @@ int  merge_arrays(int narrays,
 
       for (int i = 1; i <= narrays; ++i)
          if (map[i].is_valid()) {
-            std::cerr << "Propagate mapping " << i << "("<< map[i].get_target_array_id()
-                      <<  ") to " << idx_map[map[i].get_target_array_id()] << "\n";
-            map[i].set_target_id(idx_map[map[i].get_target_array_id()]);
+            std::cerr << "Propagate mapping " << i << "("<< map[i].target_array_id()
+                      <<  ") to " << idx_map[map[i].target_array_id()] << "\n";
+            map[i].set_target_id(idx_map[map[i].target_array_id()]);
          } else {
             std::cerr << "Set array mapping " << i << "to " << idx_map[i] << "\n";
             map[i].set_target_id(idx_map[i]);
@@ -464,7 +463,7 @@ int  merge_arrays(int narrays,
             if (src.file == PROGRAM_ARRAY) {
                array_remapping& m = map[src.array_id];
                if (m.is_valid()) {
-                  src.array_id = m.get_target_array_id();
+                  src.array_id = m.target_array_id();
                   src.swizzle = m.map_swizzles(src.swizzle);
                }
             }
@@ -474,7 +473,7 @@ int  merge_arrays(int narrays,
             if (src.file == PROGRAM_ARRAY) {
                array_remapping& m = map[src.array_id];
                if (m.is_valid()) {
-                  src.array_id = m.get_target_array_id();
+                  src.array_id = m.target_array_id();
                   src.swizzle = m.map_swizzles(src.swizzle);
                }
             }
@@ -484,7 +483,7 @@ int  merge_arrays(int narrays,
             if (dst.file == PROGRAM_ARRAY) {
                array_remapping& m = map[dst.array_id];
                if (m.is_valid()) {
-                  dst.array_id = m.get_target_array_id();
+                  dst.array_id = m.target_array_id();
                   dst.writemask = m.map_writemask(dst.writemask);
                }
             }

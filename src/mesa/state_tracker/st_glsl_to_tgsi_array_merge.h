@@ -27,8 +27,9 @@
 #include "st_glsl_to_tgsi_private.h"
 #include <iosfwd>
 
-class array_lifetime {
+/* Helper class to evalaute the required lifetime of an array. */
 
+class array_lifetime {
 public:
    array_lifetime();
    array_lifetime(unsigned aid, unsigned alength);
@@ -41,13 +42,14 @@ public:
    void set_access_mask(int s);
    void merge_lifetime(int _begin, int _end);
 
+   unsigned array_id() const {return id;}
+   int array_length() const { return length;}
    int begin() const { return first_access;}
    int end() const { return last_access;}
    int access_mask() const { return component_access_mask;}
-   int array_length() const { return length;}
-   unsigned int array_id() const {return id;}
-   bool can_merge_with(const array_lifetime& other) const;
-   int ncomponents() const;
+   int used_components() const {return used_component_count;}
+
+   bool time_doesnt_overlap(const array_lifetime& other) const;
 
    void print(std::ostream& os) const;
 
@@ -57,7 +59,7 @@ private:
    int first_access;
    int last_access;
    int component_access_mask;
-   int component_count;
+   int used_component_count;
 };
 
 inline
@@ -87,6 +89,15 @@ public:
    array_remapping(int target_array_id, int target_component_mask,
                    int original_component_mask);
 
+   /* Defines a valid remapping */
+   bool is_valid() const {return target_id > 0;}
+
+   /* Set a new target ID for array merging */
+   void set_target_id(int new_tid);
+
+   /* Propagate the target ID and a possible swizzle mapping */
+   void propagate_remapping(const array_remapping& map);
+
    /* Translates the write mask to the new, interleaved component
     * position
     */
@@ -102,25 +113,24 @@ public:
     */
    uint16_t map_swizzles(uint16_t original_swizzle) const;
 
-   unsigned get_target_array_id() const {return target_id;}
-   int combined_swizzle() const {return swizzle_sum;}
-   bool is_valid() const {return target_id > 0;}
+   unsigned target_array_id() const {return target_id;}
+
+   int combined_access_mask() const {return summary_component_mask;}
 
    void print(std::ostream& os) const;
-   void set_target_id(int new_tid);
-   void propagate_remapping(const array_remapping& map);
 
    friend bool operator == (const array_remapping& lhs,
                             const array_remapping& rhs);
 private:
-   void evaluate_swizzle_map(int reserved_component_bits,
-                             int orig_component_bits);
+   void evaluate_swizzle_map(uint8_t reserved_component_bits,
+                             uint8_t orig_component_bits);
+
    unsigned target_id;
    uint8_t writemask_map[4];
    int8_t read_swizzle_map[4];
-   bool reswizzle;
-   int swizzle_sum;
-   int original_writemask;
+   unsigned summary_component_mask:4;
+   unsigned original_writemask:4;
+   int reswizzle:1;
 };
 
 inline

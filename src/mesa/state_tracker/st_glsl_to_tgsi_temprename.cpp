@@ -232,19 +232,24 @@ private:
    bool needs_component_tracking;
 };
 
+/* Class to track array access.
+ * Compared to the temporary tracking it is very simplified, mainly because
+ * with indirect access possible one can not really establish access patterns
+ * for individual elements. Instead the lifetime evaluation handles only loops
+ * and trackes the fact whether a value was accessed conditionally in a loop.
+ */
 class array_access {
 public:
    array_access();
-   void record_read(int line, prog_scope *scope, int swizzle);
-   void record_write(int line, prog_scope *scope, int writemask);
+   void record_access(int line, prog_scope *scope, int swizzle);
    void get_required_lifetime(array_lifetime &lt);
 private:
    int first_access;
    int last_access;
    prog_scope *first_access_scope;
    prog_scope *last_access_scope;
-   bool conditional_write_in_loop;
-   int accumulated_swizzle;
+   unsigned accumulated_swizzle:4;
+   int conditional_access_in_loop:1;
 };
 
 prog_scope_storage::prog_scope_storage(void *mc, int n):
@@ -872,12 +877,12 @@ array_access::array_access():
    last_access(-1),
    first_access_scope(nullptr),
    last_access_scope(nullptr),
-   conditional_write_in_loop(false),
-   accumulated_swizzle(0)
+   accumulated_swizzle(0),
+   conditional_access_in_loop(false)
 {
 }
 
-void array_access::record_read(int line, prog_scope *scope, int swizzle)
+void array_access::record_access(int line, prog_scope *scope, int swizzle)
 {
    if (!first_access_scope) {
       first_access = line;
@@ -886,19 +891,8 @@ void array_access::record_read(int line, prog_scope *scope, int swizzle)
    last_access_scope = scope;
    last_access = line;
    accumulated_swizzle |= swizzle;
-}
-
-void array_access::record_write(int line, prog_scope *scope, int writemask)
-{
-   if (!first_access_scope) {
-      first_access = line;
-      first_access_scope = scope;
-   }
-   last_access_scope = scope;
-   last_access = line;
-   accumulated_swizzle |= writemask;
    if (scope->in_ifelse_scope() && scope->innermost_loop())
-      conditional_write_in_loop = true;
+      conditional_access_in_loop = true;
 }
 
 void array_access::get_required_lifetime(array_lifetime& lt)
@@ -914,7 +908,7 @@ void array_access::get_required_lifetime(array_lifetime& lt)
    assert(shared_scope);
    RENAME_DEBUG(cerr << "shared_scope=" << shared_scope << "\n");
 
-   if (conditional_write_in_loop) {
+   if (conditional_access_in_loop) {
       const prog_scope *help = shared_scope->outermost_loop();
       if (help) {
          shared_scope = help;
@@ -1015,7 +1009,7 @@ void access_recorder::record_read(const st_src_reg& src, int line,
       RENAME_DEBUG(cerr << "src.array_id=" << src.array_id << ", narray="
                    << narrays  << " read scope: " << scope << "\n");
       assert(src.array_id <= narrays);
-      arr[src.array_id - 1].record_read(line, scope, readmask);
+      arr[src.array_id - 1].record_access(line, scope, readmask);
    }
 
    if (src.reladdr)
@@ -1034,7 +1028,7 @@ void access_recorder::record_write(const st_dst_reg& dst, int line,
       RENAME_DEBUG(cerr << "dst.array_id=" << dst.array_id << ", narray="
                    << narrays << " write scope: " << scope << "\n");
       assert(dst.array_id <= narrays);
-      arr[dst.array_id - 1].record_write(line, scope, dst.writemask);
+      arr[dst.array_id - 1].record_access(line, scope, dst.writemask);
    }
 
    if (dst.reladdr)

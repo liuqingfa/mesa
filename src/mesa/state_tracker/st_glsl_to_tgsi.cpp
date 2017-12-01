@@ -5308,7 +5308,7 @@ glsl_to_tgsi_visitor::merge_registers(void)
       get_temp_registers_remapping(reg_lifetimes, this->next_temp, reg_lifetimes, renames);
       rename_temp_registers(renames);
 
-      this->next_array =  merge_arrays(mem_ctx, this->next_array, this->array_sizes,
+      this->next_array =  merge_arrays(this->next_array, this->array_sizes,
                                        &this->instructions, array_lifetimes);
 
       if (array_lifetimes)

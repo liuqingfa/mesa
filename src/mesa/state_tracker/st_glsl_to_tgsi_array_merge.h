@@ -135,8 +135,7 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
 
 }
 
-int merge_arrays(void *mem_ctx,
-                 int narrays,
+int merge_arrays(int narrays,
                  unsigned *array_sizes,
                  exec_list *instructions,
                  struct array_lifetime *arr_lifetimes);

@@ -84,6 +84,8 @@ public:
    }
 };
 
+bool operator == (const st_src_reg& lhs, const st_src_reg& rhs);
+
 class st_dst_reg {
 public:
    st_dst_reg(gl_register_file file, int writemask, enum glsl_base_type type, int index);
@@ -108,6 +110,8 @@ public:
    st_src_reg *reladdr;
    st_src_reg *reladdr2;
 };
+
+bool operator == (const st_dst_reg& lhs, const st_dst_reg& rhs);
 
 class glsl_to_tgsi_instruction : public exec_node {
 public:

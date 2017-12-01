@@ -179,6 +179,42 @@ st_src_reg st_src_reg::get_abs()
    return reg;
 }
 
+bool operator == (const st_src_reg& lhs, const st_src_reg& rhs)
+{
+   bool result;
+
+   if (lhs.type != rhs.type ||
+       lhs.file != rhs.file ||
+       lhs.index != rhs.index ||
+       lhs.swizzle != rhs.swizzle ||
+       lhs.index2D != rhs.index2D ||
+       lhs.has_index2 != rhs.has_index2 ||
+       lhs.array_id != rhs.array_id ||
+       lhs.negate != rhs.negate ||
+       lhs.abs != rhs.abs ||
+       lhs.double_reg2 != rhs.double_reg2 ||
+       lhs.is_double_vertex_input != rhs.is_double_vertex_input)
+      return false;
+
+
+   if (lhs.reladdr) {
+      if (!rhs.reladdr)
+         return false;
+      result = (*lhs.reladdr == *rhs.reladdr);
+   } else {
+      result = !rhs.reladdr;
+   }
+
+   if (lhs.reladdr2) {
+      if (!rhs.reladdr2)
+         return false;
+      result &= (*lhs.reladdr2 == *rhs.reladdr2);
+   } else {
+      result &= !rhs.reladdr2;
+   }
+   return result;
+}
+
 st_dst_reg::st_dst_reg(st_src_reg reg)
 {
    this->type = reg.type;
@@ -249,4 +285,36 @@ void st_dst_reg::operator=(const st_dst_reg &reg)
    this->reladdr2 = dup_reladdr(reg.reladdr2);
    this->has_index2 = reg.has_index2;
    this->array_id = reg.array_id;
+}
+
+bool operator == (const st_dst_reg& lhs, const st_dst_reg& rhs)
+{
+   bool result;
+
+   if (lhs.type != rhs.type ||
+       lhs.file != rhs.file ||
+       lhs.index != rhs.index ||
+       lhs.writemask != rhs.writemask ||
+       lhs.index2D != rhs.index2D ||
+       lhs.has_index2 != rhs.has_index2 ||
+       lhs.array_id != rhs.array_id)
+      return false;
+
+
+   if (lhs.reladdr) {
+      if (!rhs.reladdr)
+         return false;
+      result = (*lhs.reladdr == *rhs.reladdr);
+   } else {
+      result = !rhs.reladdr;
+   }
+
+   if (lhs.reladdr2) {
+      if (!rhs.reladdr2)
+         return false;
+      result &= (*lhs.reladdr2 == *rhs.reladdr2);
+   } else {
+      result &= !rhs.reladdr2;
+   }
+   return result;
 }

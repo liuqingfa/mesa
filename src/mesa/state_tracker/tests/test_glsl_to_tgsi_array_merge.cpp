@@ -95,6 +95,28 @@ TEST_F(LifetimeEvaluatorExactTest, ArraysConditionalWriteInNestedLoop)
    run (code, array_lt_expect({{1, 1, 1, 8, WRITEMASK_Z}}));
 }
 
+/* Test array read conditionally in loop before write must
+ * survive the whole loop
+ */
+TEST_F(LifetimeEvaluatorExactTest, ArraysConditionalReadBeforeWriteInNestedLoop)
+{
+   const vector<FakeCodeline> code = {
+      { TGSI_OPCODE_MOV, {1}, {in1}, {}},
+      { TGSI_OPCODE_BGNLOOP },
+      {   TGSI_OPCODE_BGNLOOP },
+      {     TGSI_OPCODE_IF, {}, {1}, {}},
+      {     TGSI_OPCODE_ADD, {MT(0,1, WRITEMASK_X)}, {MT(1,1,"z"), {MT(0,1, "x")}}, {}, ARR()},
+      {     TGSI_OPCODE_ENDIF },
+      {       TGSI_OPCODE_MOV, {MT(1, 1, WRITEMASK_Z)}, {MT(0, in0, "")}, {}, ARR()},
+      {   TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_ENDLOOP },
+      { TGSI_OPCODE_MOV, {out0}, {1}, {}},
+      { TGSI_OPCODE_END}
+   };
+   run (code, array_lt_expect({{1, 1, 1, 8, WRITEMASK_Z}}));
+}
+
+
 /* Test array written conditionally in loop must survive the whole loop */
 TEST_F(LifetimeEvaluatorExactTest, ArraysConditionalWriteInNestedLoop2)
 {

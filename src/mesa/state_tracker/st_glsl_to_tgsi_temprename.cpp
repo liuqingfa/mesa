@@ -905,7 +905,7 @@ void array_access::get_required_lifetime(array_lifetime& lt)
 {
    if (first_access_scope == last_access_scope) {
       lt.set_lifetime(first_access, last_access);
-      lt.set_swizzle(accumulated_swizzle);
+      lt.set_access_mask(accumulated_swizzle);
    }
 
    const prog_scope *shared_scope = first_access_scope;
@@ -950,7 +950,7 @@ void array_access::get_required_lifetime(array_lifetime& lt)
    }
 
    lt.set_lifetime(first_access, last_access);
-   lt.set_swizzle(accumulated_swizzle);
+   lt.set_access_mask(accumulated_swizzle);
 }
 
 /* Helper class for sorting and searching the registers based
@@ -1060,8 +1060,8 @@ void access_recorder::get_required_lifetimes(struct register_lifetime *reg_lifet
    for(int i = 0; i < narrays; ++i) {
       RENAME_DEBUG(cerr << setw(4) << i);
       arr[i].get_required_lifetime(arr_lifetimes[i]);
-      RENAME_DEBUG(cerr << ": [" << arr_lifetimes[i].get_begin() << ", "
-                   << arr_lifetimes[i].get_end() << "]\n");
+      RENAME_DEBUG(cerr << ": [" << arr_lifetimes[i].begin() << ", "
+                   << arr_lifetimes[i].end() << "]\n");
    }
    RENAME_DEBUG(cerr << "==================================\n\n");
 }

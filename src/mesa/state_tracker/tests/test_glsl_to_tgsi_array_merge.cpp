@@ -35,7 +35,7 @@
 
 using std::vector;
 
-using namespace tgsi_array_remap;
+using namespace tgsi_array_merge;
 
 /* Test two arrays life time simple */
 TEST_F(LifetimeEvaluatorExactTest, TwoArraysSimple)
@@ -139,63 +139,63 @@ using SwizzleRemapTest=testing::Test;
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_x_x)
 {
    array_remapping map1(10, 1, 1);
-   ASSERT_EQ(map1.new_array_id(), 10);
+   ASSERT_EQ(map1.get_target_array_id(), 10u);
    ASSERT_EQ(map1.map_writemask(1), 2);
-   ASSERT_EQ(map1.read_swizzle(0), 1);
+   ASSERT_EQ(map1.map_one_swizzle(0), 1);
    ASSERT_EQ(map1.combined_swizzle(), 3);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
 {
    array_remapping map1(5, 3, 1);
-   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.get_target_array_id(), 5u);
    ASSERT_EQ(map1.map_writemask(1), 4);
-   ASSERT_EQ(map1.read_swizzle(0), 2);
+   ASSERT_EQ(map1.map_one_swizzle(0), 2);
    ASSERT_EQ(map1.combined_swizzle(), 0x7);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_no_reswizzle)
 {
    array_remapping map1(5);
-   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.get_target_array_id(), 5u);
    for (int i = 1; i < 16; ++i)
       ASSERT_EQ(map1.map_writemask(i), i);
 
    for (int i = 0; i < 4; ++i)
-      ASSERT_EQ(map1.read_swizzle(i), i);
+      ASSERT_EQ(map1.map_one_swizzle(i), i);
 }
 
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xyz_x)
 {
    array_remapping map1(5, 7, 1);
-   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.get_target_array_id(), 5u);
    ASSERT_EQ(map1.map_writemask(1), 8);
-   ASSERT_EQ(map1.read_swizzle(0), 3);
+   ASSERT_EQ(map1.map_one_swizzle(0), 3);
    ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_xy)
 {
    array_remapping map1(5, 3, 3);
-   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.get_target_array_id(), 5u);
    ASSERT_EQ(map1.map_writemask(1), 4);
    ASSERT_EQ(map1.map_writemask(2), 8);
    ASSERT_EQ(map1.map_writemask(3), 0xC);
-   ASSERT_EQ(map1.read_swizzle(0), 2);
-   ASSERT_EQ(map1.read_swizzle(1), 3);
+   ASSERT_EQ(map1.map_one_swizzle(0), 2);
+   ASSERT_EQ(map1.map_one_swizzle(1), 3);
    ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
 {
    array_remapping map1(5, 5, 9);
-   ASSERT_EQ(map1.new_array_id(), 5);
+   ASSERT_EQ(map1.get_target_array_id(), 5u);
    ASSERT_EQ(map1.map_writemask(1), 2);
    ASSERT_EQ(map1.map_writemask(8), 8);
    ASSERT_EQ(map1.map_writemask(9), 0xA);
-   ASSERT_EQ(map1.read_swizzle(0), 1);
-   ASSERT_EQ(map1.read_swizzle(3), 3);
+   ASSERT_EQ(map1.map_one_swizzle(0), 1);
+   ASSERT_EQ(map1.map_one_swizzle(3), 3);
    ASSERT_EQ(map1.combined_swizzle(), 0xF);
 }
 

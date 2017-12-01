@@ -31,35 +31,33 @@ class array_lifetime {
 
 public:
    array_lifetime();
-   array_lifetime(unsigned id, unsigned length);
+   array_lifetime(unsigned aid, unsigned alength);
+   array_lifetime(unsigned aid, unsigned alength, int first_access,
+                  int last_access, int mask);
 
-   array_lifetime(unsigned id, unsigned length, int begin, int end, int sw);
-   void set_lifetime(int begin, int end);
-   void set_begin(int _begin){begin = _begin;}
-   void set_end(int _end){end = _end;}
-   void set_swizzle(int s);
-   void augment_lifetime(int begin, int end);
+   void set_lifetime(int first_access, int last_access);
+   void set_begin(int _begin){first_access = _begin;}
+   void set_end(int _end){last_access = _end;}
+   void set_access_mask(int s);
+   void merge_lifetime(int _begin, int _end);
 
-   int get_begin() const { return begin;}
-   int get_end() const { return end;}
-   int get_swizzle() const { return access_swizzle;}
-   int get_array_length() const { return array_length;}
-   unsigned int get_id() const {return array_id;}
+   int begin() const { return first_access;}
+   int end() const { return last_access;}
+   int access_mask() const { return component_access_mask;}
+   int array_length() const { return length;}
+   unsigned int array_id() const {return id;}
    bool can_merge_with(const array_lifetime& other) const;
-
-   bool has_equal_access(const array_lifetime& other) const;
-   bool contains_access_range(const array_lifetime& other) const;
-   int get_ncomponents() const;
+   int ncomponents() const;
 
    void print(std::ostream& os) const;
 
 private:
-   unsigned array_id;
-   unsigned array_length;
-   int begin;
-   int end;
-   int access_swizzle;
-   int ncomponents;
+   unsigned id;
+   unsigned length;
+   int first_access;
+   int last_access;
+   int component_access_mask;
+   int component_count;
 };
 
 inline
@@ -69,36 +67,58 @@ std::ostream& operator << (std::ostream& os, const array_lifetime& lt) {
 }
 
 
-namespace tgsi_array_remap {
+namespace tgsi_array_merge {
+
+/* Helper class to merge and interleave arrays.
+ * The interface is exposed here to make unit tests possible.
+ */
 
 class array_remapping {
 public:
-   array_remapping():target_id(0), valid(false) {}
-   array_remapping(int tid);
-   array_remapping(int tid, int res_swizzle, int old_swizzle);
+   array_remapping();
 
-   int map_writemask(int original_bits) const;
-   int read_swizzle(int original_bits) const;
-   uint16_t map_swizzles(uint16_t old_swizzle) const;
-   int new_array_id() const {return target_id;}
+   /* Simple remapping that is done when the lifetimes do not
+    * overlap.
+    */
+   array_remapping(int target_array_id);
+
+   /* Component interleaving of arrays.
+    */
+   array_remapping(int target_array_id, int target_component_mask,
+                   int original_component_mask);
+
+   /* Translates the write mask to the new, interleaved component
+    * position
+    */
+   int map_writemask(int original_writemask) const;
+
+   /* Translates one read swizzle to the new, interleaved component
+    * swizzle
+    */
+   int map_one_swizzle(int original_swizzle) const;
+
+   /* Translates all read swizzles to the new, interleaved component
+    * swizzles
+    */
+   uint16_t map_swizzles(uint16_t original_swizzle) const;
+
+   unsigned get_target_array_id() const {return target_id;}
    int combined_swizzle() const {return swizzle_sum;}
-   bool is_valid() const {return valid;}
+   bool is_valid() const {return target_id > 0;}
+
+   void print(std::ostream& os) const;
+   void set_target_id(int new_tid);
+   void propagate_remapping(const array_remapping& map);
 
    friend bool operator == (const array_remapping& lhs,
                             const array_remapping& rhs);
-
-   void print(std::ostream& os) const;
-   void propagate_array_id(int new_tid);
-   void propagate_remapping(const array_remapping& map);
-
 private:
    void evaluate_swizzle_map(int reserved_component_bits,
                              int orig_component_bits);
-   int target_id;
+   unsigned target_id;
    uint8_t writemask_map[4];
    int8_t read_swizzle_map[4];
    bool reswizzle;
-   bool valid;
    int swizzle_sum;
    int original_writemask;
 };

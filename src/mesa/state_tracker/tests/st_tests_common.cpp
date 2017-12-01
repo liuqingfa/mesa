@@ -469,9 +469,9 @@ void LifetimeEvaluatorExactTest::check(const vector<array_lifetime>& lifetimes,
                                        const array_lt_expect& e)
 {
    for (unsigned i = 0; i < lifetimes.size(); ++i) {
-      EXPECT_EQ(lifetimes[i].get_begin(), e[i].get_begin());
-      EXPECT_EQ(lifetimes[i].get_end(), e[i].get_end());
-      EXPECT_EQ(lifetimes[i].get_swizzle(), e[i].get_swizzle());
+      EXPECT_EQ(lifetimes[i].begin(), e[i].begin());
+      EXPECT_EQ(lifetimes[i].end(), e[i].end());
+      EXPECT_EQ(lifetimes[i].access_mask(), e[i].access_mask());
    }
 }
 
@@ -488,12 +488,12 @@ void LifetimeEvaluatorAtLeastTest::check(const vector<array_lifetime>& lifetimes
                                        const array_lt_expect& e)
 {
    for (unsigned i = 0; i < lifetimes.size(); ++i) {
-      EXPECT_LE(lifetimes[i].get_begin(), e[i].get_begin());
-      EXPECT_GE(lifetimes[i].get_end(), e[i].get_end());
+      EXPECT_LE(lifetimes[i].begin(), e[i].begin());
+      EXPECT_GE(lifetimes[i].end(), e[i].end());
 
       /* Tests that lifetimes doesn't add unexpected swizzles */
-      EXPECT_EQ(lifetimes[i].get_swizzle()| e[i].get_swizzle(),
-                e[i].get_swizzle());
+      EXPECT_EQ(lifetimes[i].access_mask()| e[i].access_mask(),
+                e[i].access_mask());
    }
 }
 

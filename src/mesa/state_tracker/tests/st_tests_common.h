@@ -99,6 +99,7 @@ const int in2 = -3;
 
 const int out0 = -1;
 const int out1 = -2;
+const int out2 = -3;
 
 class FakeShader {
 public:

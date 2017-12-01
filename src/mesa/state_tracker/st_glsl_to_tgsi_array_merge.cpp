@@ -416,9 +416,78 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
    return total_remapped_arrays > 0;
 }
 
+int remap_arrays(int narrays, unsigned *array_sizes,
+                 exec_list *instructions,
+                 array_remapping *map)
+{
+   /* re-calculate arrays */
+   int *idx_map = new int[narrays + 1];
+   unsigned *old_sizes = new unsigned[narrays + 1];
+   memcpy(old_sizes, array_sizes, sizeof(unsigned) * narrays);
+
+   int new_narrays = 0;
+   for (int i = 1; i <= narrays; ++i) {
+      if (!map[i].is_valid()) {
+         ++new_narrays;
+         idx_map[i] = new_narrays;
+         array_sizes[new_narrays] = old_sizes[i];
+         std::cerr << "Array " << i << " is now " << new_narrays << "\n";
+      }
+   }
+
+   for (int i = 1; i <= narrays; ++i)
+      if (map[i].is_valid()) {
+         std::cerr << "Propagate mapping " << i << "("<< map[i].target_array_id()
+                   <<  ") to " << idx_map[map[i].target_array_id()] << "\n";
+         map[i].set_target_id(idx_map[map[i].target_array_id()]);
+      } else {
+         std::cerr << "Set array mapping " << i << "to " << idx_map[i] << "\n";
+         map[i].set_target_id(idx_map[i]);
+      }
+
+   foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
+      for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
+         st_src_reg& src = inst->src[j];
+         if (src.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.target_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < inst->tex_offset_num_offset; j++) {
+         st_src_reg& src = inst->tex_offsets[j];
+         if (src.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.target_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < num_inst_dst_regs(inst); j++) {
+         st_dst_reg& dst = inst->dst[j];
+         if (dst.file == PROGRAM_ARRAY) {
+            array_remapping& m = map[dst.array_id];
+            if (m.is_valid()) {
+               dst.array_id = m.target_array_id();
+               dst.writemask = m.map_writemask(dst.writemask);
+            }
+         }
+      }
+   }
+
+   delete[] old_sizes;
+   delete[] idx_map;
+
+   return new_narrays;
+}
+
 }
 
 using namespace tgsi_array_merge;
+
 
 int  merge_arrays(int narrays,
                   unsigned *array_sizes,
@@ -428,71 +497,8 @@ int  merge_arrays(int narrays,
 
    array_remapping *map= new array_remapping[narrays + 1];
 
-   if (get_array_remapping(narrays, arr_lifetimes, map)) {
-
-      /* re-calculate arrays */
-      int *idx_map = new int[narrays + 1];
-      unsigned *old_sizes = new unsigned[narrays + 1];
-      memcpy(old_sizes, array_sizes, sizeof(unsigned) * narrays);
-
-      int new_narrays = 0;
-      for (int i = 1; i <= narrays; ++i) {
-         if (!map[i].is_valid()) {
-            ++new_narrays;
-            idx_map[i] = new_narrays;
-            array_sizes[new_narrays] = old_sizes[i];
-            std::cerr << "Array " << i << " is now " << new_narrays << "\n";
-         }
-      }
-
-      for (int i = 1; i <= narrays; ++i)
-         if (map[i].is_valid()) {
-            std::cerr << "Propagate mapping " << i << "("<< map[i].target_array_id()
-                      <<  ") to " << idx_map[map[i].target_array_id()] << "\n";
-            map[i].set_target_id(idx_map[map[i].target_array_id()]);
-         } else {
-            std::cerr << "Set array mapping " << i << "to " << idx_map[i] << "\n";
-            map[i].set_target_id(idx_map[i]);
-         }
-
-      narrays = new_narrays;
-
-      foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
-         for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
-            st_src_reg& src = inst->src[j];
-            if (src.file == PROGRAM_ARRAY) {
-               array_remapping& m = map[src.array_id];
-               if (m.is_valid()) {
-                  src.array_id = m.target_array_id();
-                  src.swizzle = m.map_swizzles(src.swizzle);
-               }
-            }
-         }
-         for (unsigned j = 0; j < inst->tex_offset_num_offset; j++) {
-            st_src_reg& src = inst->tex_offsets[j];
-            if (src.file == PROGRAM_ARRAY) {
-               array_remapping& m = map[src.array_id];
-               if (m.is_valid()) {
-                  src.array_id = m.target_array_id();
-                  src.swizzle = m.map_swizzles(src.swizzle);
-               }
-            }
-         }
-         for (unsigned j = 0; j < num_inst_dst_regs(inst); j++) {
-            st_dst_reg& dst = inst->dst[j];
-            if (dst.file == PROGRAM_ARRAY) {
-               array_remapping& m = map[dst.array_id];
-               if (m.is_valid()) {
-                  dst.array_id = m.target_array_id();
-                  dst.writemask = m.map_writemask(dst.writemask);
-               }
-            }
-         }
-      }
-
-      delete[] old_sizes;
-      delete[] idx_map;
-   }
+   if (get_array_remapping(narrays, arr_lifetimes, map))
+      narrays = remap_arrays(narrays, array_sizes, instructions, map);
 
    delete[] map;
    return narrays;

@@ -143,6 +143,10 @@ std::ostream& operator << (std::ostream& os, const array_remapping& am)
 bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
                          array_remapping *remapping);
 
+int remap_arrays(int narrays, unsigned *array_sizes,
+                 exec_list *instructions,
+                 array_remapping *map);
+
 }
 
 int merge_arrays(int narrays,

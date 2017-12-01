@@ -31,25 +31,6 @@
 
 #include <iostream>
 
-class array_access_record {
-public:
-   int begin;
-   int end;
-   int array_id;
-   int length;
-   bool erase;
-   int swizzle;
-
-   array_access_record(struct array_lifetime *lt, int id, int l);
-
-   bool operator < (const array_access_record& rhs) const {
-      return begin < rhs.begin;
-   }
-
-   void merge(array_access_record& other);
-};
-
-
 array_lifetime::array_lifetime():
    id(0),
    length(0),
@@ -250,7 +231,6 @@ void array_remapping::set_target_id(int new_tid)
    target_id = new_tid;
 }
 
-
 void array_remapping::propagate_remapping(const array_remapping& map)
 {
    assert(is_valid());
@@ -264,7 +244,7 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
    if (lhs.target_id != rhs.target_id)
       return false;
 
-   if (!lhs.is_valid())
+   if (lhs.target_id == 0)
       return true;
 
    if (lhs.reswizzle) {
@@ -312,10 +292,10 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
          remapping[aj.array_id()] = array_remapping(ai.array_id());
          ai.merge_lifetime(aj.begin(), aj.end());
 
-         for (int i = 1; i <= narrays; ++i) {
-            if (remapping[i].get_target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate id " << i << " -> " << aj.array_id() << "\n";
-               remapping[i].set_target_id(remapping[aj.array_id()].get_target_array_id());
+         for (int k = 1; k <= narrays; ++k) {
+            if (remapping[k].get_target_array_id() == aj.array_id()) {
+               std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
+               remapping[k].set_target_id(remapping[aj.array_id()].get_target_array_id());
             }
          }
 
@@ -353,10 +333,10 @@ static int merge_arrays(int narrays, array_lifetime *alt,
          remapping[aj.array_id()] = array_remapping(ai.array_id());
          ai.merge_lifetime(aj.begin(), aj.end());
 
-         for (int i = 1; i <= narrays; ++i) {
-            if (remapping[i].get_target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate id " << i << " -> " << aj.array_id() << "\n";
-               remapping[i].set_target_id(remapping[aj.array_id()].get_target_array_id());
+         for (int k = 1; k <= narrays; ++k) {
+            if (remapping[k].get_target_array_id() == aj.array_id()) {
+               std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
+               remapping[k].set_target_id(remapping[aj.array_id()].get_target_array_id());
             }
          }
 
@@ -398,12 +378,12 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
          /* If any array was merged with aj this one before, we need to propagate
           * the swizzle changes
           */
-         for (int i = 1; i <= narrays; ++i) {
-            if (remapping[i].get_target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate " << i << " -> " << aj.array_id() << "\n";
-               std::cerr << "   remap was: " << remapping[i] << "\n";
-               remapping[i].propagate_remapping(remapping[aj.array_id()]);
-               std::cerr << "   now: " << remapping[i] << "\n";
+         for (int k = 1; k <= narrays; ++k) {
+            if (remapping[k].get_target_array_id() == aj.array_id()) {
+               std::cerr << "Remap propagate " << k << " -> " << aj.array_id() << "\n";
+               std::cerr << "   remap was: " << remapping[k] << "\n";
+               remapping[k].propagate_remapping(remapping[aj.array_id()]);
+               std::cerr << "   now: " << remapping[k] << "\n";
             }
          }
 

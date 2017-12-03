@@ -82,7 +82,7 @@ public:
    /* Simple remapping that is done when the lifetimes do not
     * overlap.
     */
-   array_remapping(int target_array_id);
+   array_remapping(int target_array_id, unsigned orig_access_mask);
 
    /* Component interleaving of arrays.
     */
@@ -92,12 +92,10 @@ public:
    /* Defines a valid remapping */
    bool is_valid() const {return target_id > 0;}
 
-   /* Set a new target ID for array merging */
-   void set_target_id(int new_tid);
+   /* Resolve the mapping chain  */
+   void finalize_mappings(array_remapping *arr_map);
 
-   /* Propagate the target ID and a possible swizzle mapping */
-   void propagate_remapping(const array_remapping& map);
-
+   void set_target_id(int tid) {target_id = tid;}
    /* Translates the write mask to the new, interleaved component
     * position
     */
@@ -119,6 +117,8 @@ public:
 
    void print(std::ostream& os) const;
 
+   bool is_finalized() { return finalized;}
+
    friend bool operator == (const array_remapping& lhs,
                             const array_remapping& rhs);
 private:
@@ -126,11 +126,12 @@ private:
                              uint8_t orig_component_bits);
 
    unsigned target_id;
-   uint8_t writemask_map[4];
-   int8_t read_swizzle_map[4];
+   uint16_t writemask_map[4];
+   int16_t read_swizzle_map[4];
    unsigned summary_component_mask:4;
    unsigned original_writemask:4;
    int reswizzle:1;
+   int finalized:1;
 };
 
 inline

@@ -31,8 +31,10 @@
 
 #include <iostream>
 
-#if __cplusplus >= 201103L
+#if __cplusplus >= 201402L
 #include <memory>
+using std::unique_ptr;
+using std::make_unique;
 #endif
 
 
@@ -106,21 +108,26 @@ bool array_lifetime::time_doesnt_overlap(const array_lifetime& other) const
 namespace tgsi_array_merge {
 
 array_remapping::array_remapping():
-   target_id(0)
+   target_id(0),
+   reswizzle(false),
+   finalized(true)
 {
 }
 
-array_remapping::array_remapping(int tid):
-   target_id(tid),
-   reswizzle(false)
+array_remapping::array_remapping(int tid, unsigned orig_access_mask):
+   target_id(tid), 
+   original_writemask(orig_access_mask),
+   reswizzle(false),
+   finalized(false)
 {
 }
 
 array_remapping::array_remapping(int tid, int reserved_component_bits,
                                  int orig_component_bits):
    target_id(tid),
-   original_writemask(orig_component_bits),
-   reswizzle(true)
+   original_writemask(orig_component_bits), 
+   reswizzle(true),
+   finalized(false)
 {
    evaluate_swizzle_map(reserved_component_bits, orig_component_bits);
 }
@@ -132,28 +139,37 @@ void array_remapping::evaluate_swizzle_map(uint8_t reserved_component_mask,
       read_swizzle_map[i] = -1;
       writemask_map[i] = 0;
    }
+   summary_component_mask = reserved_component_mask;
 
    int src_swizzle_bit = 1;
    int next_free_swizzle_bit = 1;
    int k = 0;
+   bool skip = true;
 
-   for (int i = 0; i < 4; ++i, src_swizzle_bit <<= 1) {
+   unsigned last_inbit = util_last_bit(orig_component_mask);
 
-      if (!(src_swizzle_bit & orig_component_mask))
+   for (unsigned i = 0; i < 4; ++i, src_swizzle_bit <<= 1) {
+
+      if (skip && !(src_swizzle_bit & orig_component_mask))
          continue;
 
-      while (reserved_component_mask & next_free_swizzle_bit) {
+      skip = (i < last_inbit);
+
+      while ((reserved_component_mask & next_free_swizzle_bit) &&
+             k < 4) {
          next_free_swizzle_bit <<= 1;
          ++k;
-         assert(k < 4);
       }
+      if (k >= 4)
+         break;
 
       read_swizzle_map[i] = k;
       writemask_map[i] = next_free_swizzle_bit;
       reserved_component_mask |= next_free_swizzle_bit;
-   }
 
-   summary_component_mask = reserved_component_mask;
+      if (src_swizzle_bit & orig_component_mask)
+         summary_component_mask |= next_free_swizzle_bit;
+   }
 }
 
 int array_remapping::map_writemask(int writemask_to_map) const
@@ -207,20 +223,23 @@ void array_remapping::print(std::ostream& os) const
       if (reswizzle) {
          os << " write-swz: ";
          for (int i = 0; i < 4; ++i) {
-            switch (writemask_map[i]) {
-            case 1: os << "x"; break;
-            case 2: os << "y"; break;
-            case 4: os << "z"; break;
-            case 8: os << "w"; break;
-            default: os << "_";
+            if (1 << i & original_writemask) {
+               switch (writemask_map[i]) {
+               case 1: os << "x"; break;
+               case 2: os << "y"; break;
+               case 4: os << "z"; break;
+               case 8: os << "w"; break;
+               }
+            } else {
+               os << "_";
             }
          }
-         os << " ";
+         os << ", read-swz: ";
          for (int i = 0; i < 4; ++i) {
-            if (read_swizzle_map[i] >= 0)
+            if (1 << i & original_writemask && read_swizzle_map[i] >= 0)
                os << xyzw[read_swizzle_map[i]];
-            else
-            os << "_";
+                else
+               os << "_";
          }
       }
       os << "]";
@@ -229,18 +248,48 @@ void array_remapping::print(std::ostream& os) const
    }
 }
 
-void array_remapping::set_target_id(int new_tid)
-{
-   assert(is_valid());
-   target_id = new_tid;
-}
 
-void array_remapping::propagate_remapping(const array_remapping& map)
+void array_remapping::finalize_mappings(array_remapping *arr_map)
 {
    assert(is_valid());
-   target_id = map.target_id;
-   memcpy(read_swizzle_map, map.read_swizzle_map, 4 * sizeof(int));
-   memcpy(writemask_map, map.writemask_map, 4 * sizeof(int));
+
+   array_remapping& forward_map = arr_map[target_id];
+
+   std::cerr << "Test whether target id:" << target_id << " is map \n";
+   /* Target array remains */
+   if (!forward_map.is_valid())
+      return;
+
+   std::cerr << "  maybe finalized target:  " << forward_map << "\n";
+   if (!forward_map.is_finalized())
+      forward_map.finalize_mappings(arr_map);
+
+   std::cerr << "  Apply new array ID = " << forward_map.target_id
+             << "\n";
+
+   target_id =  forward_map.target_id;
+
+   if (forward_map.reswizzle) {
+      if (!reswizzle) {
+         for (int i = 0; i < 4; ++i) {
+            if (1 << i  & original_writemask) {
+               read_swizzle_map[i] = i;
+               writemask_map[i] = 1 << i;
+            } else {
+               read_swizzle_map[i] = -1;
+               writemask_map[i] = 0;
+            }
+         }
+      }
+      reswizzle = true;
+      for (int i = 0; i < 4; ++i) {
+         int mask = 1 << i;
+         if ((mask & original_writemask) == 0)
+            continue;
+         read_swizzle_map[i] = forward_map.map_one_swizzle(read_swizzle_map[i]);
+         writemask_map[i] = forward_map.map_writemask(mask);
+      }
+   }
 }
 
 bool operator == (const array_remapping& lhs, const array_remapping& rhs)
@@ -254,9 +303,9 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
    if (lhs.reswizzle) {
       return (rhs.reswizzle &&
            (memcmp(lhs.writemask_map, rhs.writemask_map,
-                   4 * sizeof(uint8_t)) == 0) &&
+                   sizeof(lhs.writemask_map)) == 0) &&
            (memcmp(lhs.read_swizzle_map, rhs.read_swizzle_map,
-                   4 * sizeof(uint8_t)) == 0));
+                   sizeof(lhs.read_swizzle_map)) == 0));
    } else {
       return !rhs.reswizzle;
    }
@@ -293,15 +342,9 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
           * the life ranges don't overlap, hence they can be merged.
           */
          std::cerr << "Merge " << aj << " with " << ai << "\n";
-         remapping[aj.array_id()] = array_remapping(ai.array_id());
+         remapping[aj.array_id()] = array_remapping(ai.array_id(),
+                                                    ai.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
-
-         for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
-               remapping[k].set_target_id(remapping[aj.array_id()].target_array_id());
-            }
-         }
 
          ++remaps;
       }
@@ -334,15 +377,9 @@ static int merge_arrays(int narrays, array_lifetime *alt,
           * the life ranges don't overlap, hence they can be merged.
           */
          std::cerr << "Merge " << aj << " with " << ai << "\n";
-         remapping[aj.array_id()] = array_remapping(ai.array_id());
+         remapping[aj.array_id()] = array_remapping(ai.array_id(),
+                                                    ai.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
-
-         for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate id " << k << " -> " << aj.array_id() << "\n";
-               remapping[k].set_target_id(remapping[aj.array_id()].target_array_id());
-            }
-         }
 
          ++remaps;
       }
@@ -353,7 +390,6 @@ static int merge_arrays(int narrays, array_lifetime *alt,
 static int interleave_arrays(int narrays, array_lifetime *alt,
                              array_remapping *remapping)
 {
-   int remaps = 0;
    for (int i = 0; i < narrays; ++i) {
       array_lifetime& ai = alt[i];
       if (remapping[ai.array_id()].is_valid())
@@ -379,23 +415,10 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
          ai.merge_lifetime(aj.begin(), aj.end());
          ai.set_access_mask(remapping[aj.array_id()].combined_access_mask());
 
-         /* If any array was merged with aj this one before, we need to propagate
-          * the swizzle changes
-          */
-         for (int k = 1; k <= narrays; ++k) {
-            if (remapping[k].target_array_id() == aj.array_id()) {
-               std::cerr << "Remap propagate " << k << " -> " << aj.array_id() << "\n";
-               std::cerr << "   remap was: " << remapping[k] << "\n";
-               remapping[k].propagate_remapping(remapping[aj.array_id()]);
-               std::cerr << "   now: " << remapping[k] << "\n";
-            }
-         }
-
-         ++remaps;
+         return 1;
       }
    }
-   return remaps;
-
+   return 0;
 }
 
 bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
@@ -418,6 +441,11 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
 
    total_remapped_arrays += merge_arrays(narrays, arr_lifetimes, remapping);
 
+   for (int i = 1; i <= narrays; ++i) {
+      if (remapping[i].is_valid())
+         remapping[i].finalize_mappings(remapping);
+   }
+
    return total_remapped_arrays > 0;
 }
 
@@ -426,12 +454,12 @@ int remap_arrays(int narrays, unsigned *array_sizes,
                  array_remapping *map)
 {
    /* re-calculate arrays */
-#if __cplusplus < 201103L
+#if __cplusplus < 201402L
    int *idx_map = new int[narrays + 1];
    unsigned *old_sizes = new unsigned[narrays + 1];
 #else
-   std::unique_ptr<int[]> idx_map(new int[narrays + 1]);
-   std::unique_ptr<unsigned[]> old_sizes(new unsigned[narrays + 1]);
+   unique_ptr<int[]> idx_map = make_unique<int[]>(narrays + 1);
+   unique_ptr<unsigned[]> old_sizes = make_unique<unsigned[]>(narrays + 1);
 #endif
 
    memcpy(&old_sizes[0], &array_sizes[0], sizeof(unsigned) * narrays);
@@ -464,7 +492,7 @@ int remap_arrays(int narrays, unsigned *array_sizes,
    foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
       for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
          st_src_reg& src = inst->src[j];
-         if (src.file == PROGRAM_ARRAY) {
+         if (src.file == PROGRAM_ARRAY && src.array_id > 0) {
             array_remapping& m = map[src.array_id];
             if (m.is_valid()) {
                src.array_id = m.target_array_id();
@@ -474,7 +502,7 @@ int remap_arrays(int narrays, unsigned *array_sizes,
       }
       for (unsigned j = 0; j < inst->tex_offset_num_offset; j++) {
          st_src_reg& src = inst->tex_offsets[j];
-         if (src.file == PROGRAM_ARRAY) {
+         if (src.file == PROGRAM_ARRAY && src.array_id > 0) {
             array_remapping& m = map[src.array_id];
             if (m.is_valid()) {
                src.array_id = m.target_array_id();
@@ -484,7 +512,8 @@ int remap_arrays(int narrays, unsigned *array_sizes,
       }
       for (unsigned j = 0; j < num_inst_dst_regs(inst); j++) {
          st_dst_reg& dst = inst->dst[j];
-         if (dst.file == PROGRAM_ARRAY) {
+         if (dst.file == PROGRAM_ARRAY && dst.array_id > 0) {
+            std::cerr << "Array ID = " << dst.array_id << "\n";
             array_remapping& m = map[dst.array_id];
             if (m.is_valid()) {
                dst.array_id = m.target_array_id();

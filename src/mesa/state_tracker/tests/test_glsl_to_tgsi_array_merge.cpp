@@ -178,7 +178,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_x)
 
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_no_reswizzle)
 {
-   array_remapping map1(5);
+   array_remapping map1(5, 3);
    ASSERT_EQ(map1.target_array_id(), 5u);
    for (int i = 1; i < 16; ++i)
       ASSERT_EQ(map1.map_writemask(i), i);
@@ -212,6 +212,7 @@ TEST_F(SwizzleRemapTest, ArrayRemappingBase_xy_xy)
 TEST_F(SwizzleRemapTest, ArrayRemappingBase_xz_xw)
 {
    array_remapping map1(5, 5, 9);
+   std::cerr << map1 << "\n";
    ASSERT_EQ(map1.target_array_id(), 5u);
    ASSERT_EQ(map1.map_writemask(1), 2);
    ASSERT_EQ(map1.map_writemask(8), 8);
@@ -281,7 +282,7 @@ TEST_F(ArrayMergeTest, SimpleChainMerge)
 
    vector<array_remapping> expect = {
       {},
-      {1},
+      {1, WRITEMASK_XYZW},
    };
 
    vector<array_remapping> result(3);
@@ -302,7 +303,7 @@ TEST_F(ArrayMergeTest, MergeAndInterleave)
 
    vector<array_remapping> expect = {
       {},
-      {1},
+      {1, WRITEMASK_X},
       {1, WRITEMASK_X, WRITEMASK_X},
       {1, WRITEMASK_X, WRITEMASK_X}
    };
@@ -324,7 +325,7 @@ TEST_F(ArrayMergeTest, MergeAndInterleave2)
 
    vector<array_remapping> expect = {
       {},
-      {1},
+      {1, WRITEMASK_X},
       {1, WRITEMASK_X, WRITEMASK_XY},
       {1, WRITEMASK_XYZ, WRITEMASK_X}
    };
@@ -346,7 +347,7 @@ TEST_F(ArrayMergeTest, MergeAndInterleave3)
 
    vector<array_remapping> expect = {
       {},
-      {1},
+      {1, WRITEMASK_X},
       {1, WRITEMASK_X, WRITEMASK_X}
    };
    vector<array_remapping> result(input.size() + 1);
@@ -369,11 +370,11 @@ TEST_F(ArrayMergeTest, MergeAndInterleave4)
 
    vector<array_remapping> expect = {
       {},
-      {1},
+      {1, WRITEMASK_XY},
       {1, WRITEMASK_X, WRITEMASK_X},
-      {1},
+      {1, WRITEMASK_XYZ},
       {1, WRITEMASK_XYZ, WRITEMASK_W},
-      {1}
+      {1, WRITEMASK_XYZW}
    };
    vector<array_remapping> result(input.size() + 1);
    get_array_remapping(input.size(), &input[0], &result[0]);
@@ -386,6 +387,35 @@ TEST_F(ArrayMergeTest, MergeAndInterleave4)
    EXPECT_EQ(result[6], expect[5]);
 
 }
+
+TEST_F(ArrayMergeTest, MergeAndInterleave5)
+{
+   vector<array_lifetime> input = {
+      {1, 7, 1, 5, WRITEMASK_X},
+      {2, 6, 1, 3, WRITEMASK_X},
+      {3, 5, 4, 5, WRITEMASK_X},
+      {4, 4, 6, 10, WRITEMASK_XY},
+      {5, 8, 1, 10, WRITEMASK_XY}
+   };
+
+   vector<array_remapping> expect = {
+      {5, WRITEMASK_XY, WRITEMASK_X},
+      {5, WRITEMASK_XYZ, WRITEMASK_X},
+      {5, WRITEMASK_XYZ, WRITEMASK_X},
+      {5, WRITEMASK_XY, WRITEMASK_XY},
+      {}
+   };
+   vector<array_remapping> result(input.size() + 1);
+   get_array_remapping(input.size(), &input[0], &result[0]);
+
+   EXPECT_EQ(result[1], expect[0]);
+   EXPECT_EQ(result[2], expect[1]);
+   EXPECT_EQ(result[3], expect[2]);
+   EXPECT_EQ(result[4], expect[3]);
+   EXPECT_EQ(result[5], expect[4]);
+
+}
+
 
 class ArrayRemapTest: public MesaTestWithMemCtx {
 
@@ -405,11 +435,11 @@ TEST_F(ArrayRemapTest, ApplyMerge)
    vector<array_remapping> remapping = {
       {},
       {},
-      {1},
+      {1, WRITEMASK_X},
       {1, WRITEMASK_X, WRITEMASK_X},
-      {1},
+      {1, WRITEMASK_X},
       {1, WRITEMASK_XYZ, WRITEMASK_W},
-      {1}
+      {1, WRITEMASK_X}
    };
 
    const vector<FakeCodeline> code = {
@@ -425,7 +455,7 @@ TEST_F(ArrayRemapTest, ApplyMerge)
       { TGSI_OPCODE_MUL, {MT(0, out0, WRITEMASK_W)}, {MT(3, 1, "x"), MT(0, in0, "")}, {}, ARR()},
       { TGSI_OPCODE_ADD, {MT(0, out1, WRITEMASK_XYZ)}, {MT(4, 1, "xyz"), MT(0, in0, "")}, {}, ARR()},
       { TGSI_OPCODE_MAD, {MT(0, out1, WRITEMASK_W)}, {MT(5, 1, "w"), MT(3, 1, "x"), MT(1, 1, "x")}, {}, ARR()},
-      { TGSI_OPCODE_MOV, {MT(0, out2, WRITEMASK_XYZW)}, {MT(6, 1, "xyzw"), MT(0, in0, "")}, {}, ARR()},
+      { TGSI_OPCODE_ADD, {MT(0, out2, WRITEMASK_XYZW)}, {MT(6, 1, "xyzw"), MT(0, in0, "")}, {}, ARR()},
 
       { TGSI_OPCODE_END}
    };
@@ -442,8 +472,8 @@ TEST_F(ArrayRemapTest, ApplyMerge)
       { TGSI_OPCODE_ADD, {MT(0, out0, WRITEMASK_YZ)}, {MT(1, 1, "xy"), MT(0, in0, "")}, {}, ARR()},
       { TGSI_OPCODE_MUL, {MT(0, out0, WRITEMASK_W)}, {MT(1, 1, "y"), MT(0, in0, "")}, {}, ARR()},
       { TGSI_OPCODE_ADD, {MT(0, out1, WRITEMASK_XYZ)}, {MT(1, 1, "xyz"), MT(0, in0, "")}, {}, ARR()},
-      { TGSI_OPCODE_MAD, {MT(0, out1, WRITEMASK_W)}, {MT(1, 1, "w"), MT(1, 1, "y"), MT(1, 1, "x"),}, {}, ARR()},
-      { TGSI_OPCODE_MOV, {MT(0, out2, WRITEMASK_XYZW)}, {MT(1, 1, "xyzw"), MT(0, in0, "")}, {}, ARR()},
+      { TGSI_OPCODE_MAD, {MT(0, out1, WRITEMASK_W)}, {MT(1, 1, "w"), MT(1, 1, "y"), MT(1, 1, "x")}, {}, ARR()},
+      { TGSI_OPCODE_ADD, {MT(0, out2, WRITEMASK_XYZW)}, {MT(1, 1, "xyzw"), MT(0, in0, "")}, {}, ARR()},
       { TGSI_OPCODE_END}
    };
 

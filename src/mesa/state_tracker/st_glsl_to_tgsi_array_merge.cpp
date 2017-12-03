@@ -31,6 +31,11 @@
 
 #include <iostream>
 
+#if __cplusplus >= 201103L
+#include <memory>
+#endif
+
+
 array_lifetime::array_lifetime():
    id(0),
    length(0),
@@ -421,9 +426,15 @@ int remap_arrays(int narrays, unsigned *array_sizes,
                  array_remapping *map)
 {
    /* re-calculate arrays */
+#if __cplusplus < 201103L
    int *idx_map = new int[narrays + 1];
    unsigned *old_sizes = new unsigned[narrays + 1];
-   memcpy(old_sizes, array_sizes, sizeof(unsigned) * narrays);
+#else
+   std::unique_ptr<int[]> idx_map(new int[narrays + 1]);
+   std::unique_ptr<unsigned[]> old_sizes(new unsigned[narrays + 1]);
+#endif
+
+   memcpy(&old_sizes[0], &array_sizes[0], sizeof(unsigned) * narrays);
 
    int new_narrays = 0;
    for (int i = 1; i <= narrays; ++i) {
@@ -483,8 +494,10 @@ int remap_arrays(int narrays, unsigned *array_sizes,
       }
    }
 
+#if __cplusplus < 201103L
    delete[] old_sizes;
    delete[] idx_map;
+#endif
 
    return new_narrays;
 }

@@ -435,15 +435,20 @@ int remap_arrays(int narrays, unsigned *array_sizes,
       }
    }
 
-   for (int i = 1; i <= narrays; ++i)
+   for (int i = 1; i <= narrays; ++i) {
       if (map[i].is_valid()) {
          std::cerr << "Propagate mapping " << i << "("<< map[i].target_array_id()
                    <<  ") to " << idx_map[map[i].target_array_id()] << "\n";
          map[i].set_target_id(idx_map[map[i].target_array_id()]);
-      } else {
+      }
+   }
+
+   for (int i = 1; i <= narrays; ++i) {
+      if (!map[i].is_valid()) {
          std::cerr << "Set array mapping " << i << "to " << idx_map[i] << "\n";
          map[i].set_target_id(idx_map[i]);
       }
+   }
 
    foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
       for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {

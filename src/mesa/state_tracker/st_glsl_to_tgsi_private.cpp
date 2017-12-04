@@ -26,6 +26,7 @@
 #include "st_glsl_to_tgsi_private.h"
 #include <tgsi/tgsi_info.h>
 #include <mesa/program/prog_instruction.h>
+#include <mesa/program/prog_print.h>
 
 static int swizzle_for_type(const glsl_type *type, int component = 0)
 {
@@ -215,6 +216,45 @@ bool operator == (const st_src_reg& lhs, const st_src_reg& rhs)
    return result;
 }
 
+static const char swz_txt[] = "xyzw";
+
+std::ostream& operator << (std::ostream& os, const st_src_reg& reg)
+{
+
+   if (reg.negate)
+      os << "-";
+   if (reg.abs)
+      os << "|";
+
+   os << _mesa_register_file_name(reg.file);
+
+   if (reg.file == PROGRAM_ARRAY) {
+      os << "(" << reg.array_id << ")";
+   }
+   if (reg.has_index2) {
+      os << "[";
+      if (reg.reladdr2) {
+         os << *reg.reladdr2;
+      }
+      os << "+" << reg.index2D << "]";
+   }
+   os << "[";
+   if (reg.reladdr) {
+      os << *reg.reladdr;
+   }
+   os << reg.index << "].";
+   for (int i = 0; i < 4; ++i) {
+      int swz = GET_SWZ(reg.swizzle, i);
+      if (swz < 4)
+         os << swz_txt[swz];
+      else
+         os << "_";
+   }
+   if (reg.abs)
+      os << "|";
+   return os;
+}
+
 st_dst_reg::st_dst_reg(st_src_reg reg)
 {
    this->type = reg.type;
@@ -317,4 +357,33 @@ bool operator == (const st_dst_reg& lhs, const st_dst_reg& rhs)
       result &= !rhs.reladdr2;
    }
    return result;
+}
+
+std::ostream& operator << (std::ostream& os, const st_dst_reg& reg)
+{
+
+   os << _mesa_register_file_name(reg.file);
+   if (reg.file == PROGRAM_ARRAY) {
+      os << "(" << reg.array_id << ")";
+   }
+   if (reg.has_index2) {
+      os << "[";
+      if (reg.reladdr2) {
+         os << *reg.reladdr2;
+      }
+      os << "+" << reg.index2D << "]";
+   }
+   os << "[";
+   if (reg.reladdr) {
+      os << *reg.reladdr;
+   }
+   os << reg.index << "].";
+   for (int i = 0; i < 4; ++i) {
+      if (1 << i & reg.writemask)
+         os << swz_txt[i];
+      else
+         os << "_";
+   }
+
+   return os;
 }

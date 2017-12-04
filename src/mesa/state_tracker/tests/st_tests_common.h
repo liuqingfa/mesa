@@ -71,6 +71,7 @@ struct FakeCodeline {
 
    friend bool operator == (const FakeCodeline& lsh, const FakeCodeline& rhs);
 
+   void print(std::ostream& os) const;
 private:
    st_src_reg create_src_register(int src_idx);
    st_src_reg create_src_register(int src_idx, const char *swizzle);
@@ -97,6 +98,12 @@ private:
    int max_array_id;
    static void *mem_ctx;
 };
+
+inline std::ostream& operator << (std::ostream& os, const FakeCodeline& line)
+{
+   line.print(os);
+   return os;
+}
 
 /* A few constants that will not be tracked as temporary registers
    by the fake shader.

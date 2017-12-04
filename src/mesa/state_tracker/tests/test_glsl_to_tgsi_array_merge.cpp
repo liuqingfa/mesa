@@ -496,7 +496,4 @@ void ArrayRemapTest::run (const vector<FakeCodeline>& code,
 
    EXPECT_EQ(n_arrays, expect_shader.get_num_arrays());
 
-
-
-
 }

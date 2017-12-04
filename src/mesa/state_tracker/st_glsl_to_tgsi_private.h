@@ -30,6 +30,7 @@
 #include <compiler/glsl_types.h>
 #include <compiler/glsl/ir.h>
 #include <tgsi/tgsi_info.h>
+#include <ostream>
 
 int swizzle_for_size(int size);
 
@@ -86,6 +87,8 @@ public:
 
 bool operator == (const st_src_reg& lhs, const st_src_reg& rhs);
 
+std::ostream& operator << (std::ostream& os, const st_src_reg& reg);
+
 class st_dst_reg {
 public:
    st_dst_reg(gl_register_file file, int writemask, enum glsl_base_type type, int index);
@@ -112,6 +115,9 @@ public:
 };
 
 bool operator == (const st_dst_reg& lhs, const st_dst_reg& rhs);
+
+std::ostream& operator << (std::ostream& os, const st_dst_reg& reg);
+
 
 class glsl_to_tgsi_instruction : public exec_node {
 public:

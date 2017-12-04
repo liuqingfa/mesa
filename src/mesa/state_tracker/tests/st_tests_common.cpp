@@ -174,6 +174,21 @@ void FakeCodeline::read_reg(const st_reg& s)
    }
 }
 
+void FakeCodeline::print(std::ostream& os) const
+{
+   const struct tgsi_opcode_info *info = tgsi_get_opcode_info(op);
+   os << tgsi_get_opcode_name(info->opcode) << " ";
+
+   for (auto d: dst) {
+      os << d << " ";
+   }
+   os << " <- ";
+   for (auto s: src) {
+      os << s << " ";
+   }
+   os << "\n";
+}
+
 bool operator == (const FakeCodeline& lhs, const FakeCodeline& rhs)
 {
    if  ((lhs.op != rhs.op) ||

@@ -1380,37 +1380,6 @@ void dump_reg_access(std::ostream& os, const st_reg& reg)
    os << reg.index << "]";
 }
 
-static std::ostream& operator << (std::ostream& os, const st_src_reg& reg)
-{
-   dump_reg_access(os, reg);
-
-   if (reg.swizzle != SWIZZLE_XYZW) {
-      os << ".";
-      for (int idx = 0; idx < 4; ++idx) {
-         int swz = GET_SWZ(reg.swizzle, idx);
-         if (swz < 4) {
-            os << swizzle_txt[swz];
-         }
-      }
-   }
-   return os;
-}
-
-static std::ostream& operator << (std::ostream& os, const st_dst_reg& dst)
-{
-   dump_reg_access(os, dst);
-
-   if (dst.writemask != TGSI_WRITEMASK_XYZW) {
-      os << ".";
-      if (dst.writemask & TGSI_WRITEMASK_X) os << "x";
-      if (dst.writemask & TGSI_WRITEMASK_Y) os << "y";
-      if (dst.writemask & TGSI_WRITEMASK_Z) os << "z";
-      if (dst.writemask & TGSI_WRITEMASK_W) os << "w";
-   }
-
-   return os;
-}
-
 static
 void dump_instruction(std::ostream& os, int line, prog_scope *scope,
                       const glsl_to_tgsi_instruction& inst)

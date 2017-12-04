@@ -399,7 +399,7 @@ TEST_F(ArrayMergeTest, MergeAndInterleave5)
    };
 
    vector<array_remapping> expect = {
-      {5, WRITEMASK_XY, WRITEMASK_X},
+      {5, WRITEMASK_XY, WRITEMASK_XY}, /* expect xy because of interleaving */
       {5, WRITEMASK_XYZ, WRITEMASK_X},
       {5, WRITEMASK_XYZ, WRITEMASK_X},
       {5, WRITEMASK_XY, WRITEMASK_XY},

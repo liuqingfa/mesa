@@ -163,6 +163,8 @@ void array_remapping::evaluate_swizzle_map(uint8_t reserved_component_mask,
       if (k >= 4)
          break;
 
+      std::cerr << " ..swizzle:" << i << " rm:" << k << " wm:"
+                << next_free_swizzle_bit << "\n";
       read_swizzle_map[i] = k;
       writemask_map[i] = next_free_swizzle_bit;
       reserved_component_mask |= next_free_swizzle_bit;
@@ -181,9 +183,12 @@ int array_remapping::map_writemask(int writemask_to_map) const
 
    assert(original_writemask & writemask_to_map);
 
+   std::cerr << " bits:" << writemask_to_map;
    int result = 0;
    for (int i = 0; i < 4; ++i) {
       if (1 << i & writemask_to_map) {
+         std::cerr << " map write " << i <<  " "
+                   << writemask_map[i] << " ";
          result |= writemask_map[i];
       }
    }
@@ -248,24 +253,51 @@ void array_remapping::print(std::ostream& os) const
    }
 }
 
+class log_depth {
+public:
+   log_depth(){depth +=2;}
+   ~log_depth(){depth -=2;}
+   void print (std::ostream& os) const {
+      for (int i = 0; i < depth; ++i)
+         os << "  ";
+   }
+private:
+   static int depth;
+};
+int log_depth::depth = 0;
+
+std::ostream& operator << (std::ostream& os, const log_depth& ld)
+{
+   ld.print(os);
+   return os;
+}
 
 void array_remapping::finalize_mappings(array_remapping *arr_map)
 {
    assert(is_valid());
 
+   log_depth d;
+
    array_remapping& forward_map = arr_map[target_id];
 
-   std::cerr << "Test whether target id:" << target_id << " is map \n";
+   std::cerr << d << "Test whether target id:" << target_id << " is map ...";
    /* Target array remains */
-   if (!forward_map.is_valid())
+   if (!forward_map.is_valid()) {
+      std::cerr << "no, -> nothing to do\n";
       return;
+   }
+   std::cerr << "yes: " << forward_map << " \n";
 
-   std::cerr << "  maybe finalized target:  " << forward_map << "\n";
-   if (!forward_map.is_finalized())
+   std::cerr << d  << "Finalized? ...";
+   if (!forward_map.is_finalized()) {
+      std::cerr << d << "no, do it\n";
       forward_map.finalize_mappings(arr_map);
+      std::cerr << d << "...done \n";
+   }else{
+      std::cerr << d << "yes\n";
+   }
 
-   std::cerr << "  Apply new array ID = " << forward_map.target_id
-             << "\n";
+   std::cerr  << d << "Apply mapping from " << forward_map << "\n";
 
    target_id =  forward_map.target_id;
 
@@ -286,10 +318,16 @@ void array_remapping::finalize_mappings(array_remapping *arr_map)
          int mask = 1 << i;
          if ((mask & original_writemask) == 0)
             continue;
+         std::cerr << d << "  remap rm[" << i << "]=" << read_swizzle_map[i];
          read_swizzle_map[i] = forward_map.map_one_swizzle(read_swizzle_map[i]);
-         writemask_map[i] = forward_map.map_writemask(mask);
+         std::cerr << " -> " << read_swizzle_map[i] << "\n";
+
+         std::cerr << d << "  remap wm[" << i << "]=" << writemask_map[i];
+         writemask_map[i] = forward_map.map_writemask(writemask_map[i]);
+         std::cerr <<  " -> " << writemask_map[i] << "\n";
       }
    }
+   std::cerr << d << "Finalized: " << *this << "\n";
 }
 
 bool operator == (const array_remapping& lhs, const array_remapping& rhs)
@@ -301,14 +339,24 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
       return true;
 
    if (lhs.reswizzle) {
-      return (rhs.reswizzle &&
-           (memcmp(lhs.writemask_map, rhs.writemask_map,
-                   sizeof(lhs.writemask_map)) == 0) &&
-           (memcmp(lhs.read_swizzle_map, rhs.read_swizzle_map,
-                   sizeof(lhs.read_swizzle_map)) == 0));
+      if (!rhs.reswizzle)
+         return false;
+
+      if (lhs.original_writemask != rhs.original_writemask)
+         return false;
+
+      for (int i = 0; i < 4; ++i) {
+         if (1 << i & lhs.original_writemask) {
+            if (lhs.writemask_map[i] != rhs.writemask_map[i])
+               return false;
+            if (lhs.read_swizzle_map[i] != rhs.read_swizzle_map[i])
+               return false;
+         }
+      }
    } else {
       return !rhs.reswizzle;
    }
+   return true;
 }
 
 bool sort_by_begin(const array_lifetime& lhs, const array_lifetime& rhs) {
@@ -346,6 +394,7 @@ static int merge_arrays_with_equal_swizzle(int narrays, array_lifetime *alt,
                                                     ai.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
 
+         std::cerr << "Merge: " << remapping[aj.array_id()] << "\n";
          ++remaps;
       }
    }
@@ -381,6 +430,8 @@ static int merge_arrays(int narrays, array_lifetime *alt,
                                                     ai.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
 
+         std::cerr << "Merge: " << remapping[aj.array_id()] << "\n";
+
          ++remaps;
       }
    }
@@ -411,9 +462,11 @@ static int interleave_arrays(int narrays, array_lifetime *alt,
           */
          std::cerr << "Interleave " << aj << " with " << ai << "\n";
          remapping[aj.array_id()] = array_remapping(ai.array_id(), ai.access_mask(),
-                                        aj.access_mask());
+                                                    aj.access_mask());
          ai.merge_lifetime(aj.begin(), aj.end());
          ai.set_access_mask(remapping[aj.array_id()].combined_access_mask());
+
+         std::cerr << "Merge: " << remapping[aj.array_id()] << "\n";
 
          return 1;
       }
@@ -442,8 +495,11 @@ bool get_array_remapping(int narrays, array_lifetime *arr_lifetimes,
    total_remapped_arrays += merge_arrays(narrays, arr_lifetimes, remapping);
 
    for (int i = 1; i <= narrays; ++i) {
-      if (remapping[i].is_valid())
+      if (remapping[i].is_valid()) {
+         std::cerr << "Remap " << i << ": "
+                   << remapping[i] << "\n";
          remapping[i].finalize_mappings(remapping);
+      }
    }
 
    return total_remapped_arrays > 0;

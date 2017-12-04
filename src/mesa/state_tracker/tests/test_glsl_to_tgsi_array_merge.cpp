@@ -487,9 +487,9 @@ void ArrayRemapTest::run (const vector<FakeCodeline>& code,
                           vector<unsigned> array_sizes,
                           vector<array_remapping>& remapping) const
 {
-   FakeShader input(code, mem_ctx);
-   FakeShader expect_shader(expect, mem_ctx);
-   exec_list *program = input.get_program();
+   FakeShader input(code);
+   FakeShader expect_shader(expect);
+   exec_list *program = input.get_program(mem_ctx);
 
    int n_arrays = remap_arrays(array_sizes.size() - 1, &array_sizes[0],
          program, &remapping[0]);

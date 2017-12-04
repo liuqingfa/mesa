@@ -60,12 +60,16 @@ struct FakeCodeline {
                 const std::vector<std::tuple<int,int, const char*>>& _src,
                 const std::vector<std::tuple<int,int, const char*>>&_to, ARR with_array);
 
+   FakeCodeline(const glsl_to_tgsi_instruction& inst);
+
    int get_max_reg_id() const { return max_temp_id;}
    int get_max_array_id() const { return max_array_id;}
 
    glsl_to_tgsi_instruction *get_codeline() const;
 
    static void set_mem_ctx(void *ctx);
+
+   friend bool operator == (const FakeCodeline& lsh, const FakeCodeline& rhs);
 
 private:
    st_src_reg create_src_register(int src_idx);
@@ -80,6 +84,10 @@ private:
    st_dst_reg create_dst_register(int dst_idx, int writemask);
    st_dst_reg create_dst_register(int dst_idx, gl_register_file file);
    st_dst_reg create_dst_register(const std::tuple<int,int,int>& dest);
+
+   template <typename st_reg>
+   void read_reg(const st_reg& s);
+
    unsigned op;
    std::vector<st_dst_reg> dst;
    std::vector<st_src_reg> src;
@@ -103,14 +111,16 @@ const int out2 = -3;
 
 class FakeShader {
 public:
-   FakeShader(const std::vector<FakeCodeline>& source, void *ctx);
+   FakeShader(const std::vector<FakeCodeline>& source);
+   FakeShader(exec_list *tgsi_prog);
 
-   exec_list* get_program() const;
+   exec_list* get_program(void *ctx) const;
    int get_num_temps() const;
    int get_num_arrays() const;
 
 private:
-   exec_list* program;
+
+   std::vector<FakeCodeline> program;
    int num_temps;
    int num_arrays;
 };

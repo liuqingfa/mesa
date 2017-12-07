@@ -56,6 +56,7 @@
 #include "st_nir.h"
 #include "st_shader_cache.h"
 #include "st_glsl_to_tgsi_temprename.h"
+#include "st_glsl_to_tgsi_array_merge.h"
 
 #include "util/hash_table.h"
 #include <algorithm>
@@ -5415,19 +5416,30 @@ glsl_to_tgsi_visitor::split_arrays(void)
 void
 glsl_to_tgsi_visitor::merge_registers(void)
 {
-   struct lifetime *lifetimes =
-         rzalloc_array(mem_ctx, struct lifetime, this->next_temp);
+   struct array_lifetime *array_lifetimes = NULL;
 
-   if (get_temp_registers_required_lifetimes(mem_ctx, &this->instructions,
-                                             this->next_temp, lifetimes)) {
-      struct rename_reg_pair *renames =
-            rzalloc_array(mem_ctx, struct rename_reg_pair, this->next_temp);
-      get_temp_registers_remapping(mem_ctx, this->next_temp, lifetimes, renames);
-      rename_temp_registers(renames);
-      ralloc_free(renames);
+   struct register_lifetime *reg_lifetimes =
+         rzalloc_array(mem_ctx, struct register_lifetime, this->next_temp);
+
+   if (this->next_array > 0) {
+      array_lifetimes = new array_lifetime[this->next_array];
+      for (unsigned i = 0; i < this->next_array; ++i)
+         array_lifetimes[i] = array_lifetime(i+1, this->array_sizes[i+1]);
    }
 
-   ralloc_free(lifetimes);
+
+   if (get_temp_registers_required_lifetimes(reg_lifetimes, &this->instructions,
+                                             this->next_temp, reg_lifetimes,
+                                             this->next_array, array_lifetimes)) {
+      struct rename_reg_pair *renames =
+            rzalloc_array(reg_lifetimes, struct rename_reg_pair, this->next_temp);
+      get_temp_registers_remapping(reg_lifetimes, this->next_temp, reg_lifetimes, renames);
+      rename_temp_registers(renames);
+
+      if (array_lifetimes)
+         delete[] array_lifetimes;
+   }
+   ralloc_free(reg_lifetimes);
 }
 
 /* Reassign indices to temporary registers by reusing unused indices created

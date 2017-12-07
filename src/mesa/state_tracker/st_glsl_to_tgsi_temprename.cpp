@@ -22,6 +22,8 @@
  */
 
 #include "st_glsl_to_tgsi_temprename.h"
+#include "st_glsl_to_tgsi_array_merge.h"
+
 #include <tgsi/tgsi_info.h>
 #include <tgsi/tgsi_strings.h>
 #include <program/prog_instruction.h>
@@ -41,11 +43,10 @@
 #include <util/debug.h>
 using std::cerr;
 using std::setw;
-using std::ostream;
 #endif
 
 /* If <windows.h> is included this is defined and clashes with
- * std::numeric_limits<>::max()
+ * std::numeric_limits<>::max()75c8044d
  */
 #ifdef max
 #undef max
@@ -153,7 +154,7 @@ public:
 
    void record_read(int line, prog_scope *scope);
    void record_write(int line, prog_scope *scope);
-   lifetime get_required_lifetime();
+   register_lifetime get_required_lifetime();
 private:
    void propagate_lifetime_to_dominant_write_scope();
    bool conditional_ifelse_write_in_loop() const;
@@ -225,13 +226,33 @@ public:
    temp_access();
    void record_read(int line, prog_scope *scope, int swizzle);
    void record_write(int line, prog_scope *scope, int writemask);
-   lifetime get_required_lifetime();
+   register_lifetime get_required_lifetime();
 private:
    void update_access_mask(int mask);
 
    temp_comp_access comp[4];
    int access_mask;
    bool needs_component_tracking;
+};
+
+/* Class to track array access.
+ * Compared to the temporary tracking it is very simplified, mainly because
+ * with indirect access possible one can not really establish access patterns
+ * for individual elements. Instead the lifetime evaluation handles only loops
+ * and trackes the fact whether a value was accessed conditionally in a loop.
+ */
+class array_access {
+public:
+   array_access();
+   void record_access(int line, prog_scope *scope, int swizzle);
+   void get_required_lifetime(array_lifetime &lt);
+private:
+   int first_access;
+   int last_access;
+   prog_scope *first_access_scope;
+   prog_scope *last_access_scope;
+   unsigned accumulated_swizzle:4;
+   int conditional_access_in_loop:1;
 };
 
 prog_scope_storage::prog_scope_storage(void *mc, int n):
@@ -243,7 +264,7 @@ prog_scope_storage::prog_scope_storage(void *mc, int n):
 
 prog_scope_storage::~prog_scope_storage()
 {
-   ralloc_free(storage);
+   //ralloc_free(storage);
 }
 
 prog_scope*
@@ -385,10 +406,10 @@ const prog_scope *prog_scope::in_else_scope() const
 
 const prog_scope *prog_scope::in_parent_ifelse_scope() const
 {
-        if (parent_scope)
-                return parent_scope->in_ifelse_scope();
-        else
-                return nullptr;
+   if (parent_scope)
+      return parent_scope->in_ifelse_scope();
+   else
+      return nullptr;
 }
 
 const prog_scope *prog_scope::in_ifelse_scope() const
@@ -489,13 +510,8 @@ void temp_access::record_write(int line, prog_scope *scope, int writemask)
       comp[3].record_write(line, scope);
 }
 
-void temp_access::record_read(int line, prog_scope *scope, int swizzle)
+void temp_access::record_read(int line, prog_scope *scope, int readmask)
 {
-   int readmask = 0;
-   for (int idx = 0; idx < 4; ++idx) {
-      int swz = GET_SWZ(swizzle, idx);
-      readmask |= (1 << swz) & 0xF;
-   }
    update_access_mask(readmask);
 
    if (readmask & WRITEMASK_X)
@@ -508,22 +524,22 @@ void temp_access::record_read(int line, prog_scope *scope, int swizzle)
       comp[3].record_read(line, scope);
 }
 
-inline static lifetime make_lifetime(int b, int e)
+inline static register_lifetime make_lifetime(int b, int e)
 {
-   lifetime lt;
+   register_lifetime lt;
    lt.begin = b;
    lt.end = e;
    return lt;
 }
 
-lifetime temp_access::get_required_lifetime()
+register_lifetime temp_access::get_required_lifetime()
 {
-   lifetime result = make_lifetime(-1, -1);
+   register_lifetime result = make_lifetime(-1, -1);
 
    unsigned mask = access_mask;
    while (mask) {
       unsigned chan = u_bit_scan(&mask);
-      lifetime lt = comp[chan].get_required_lifetime();
+      register_lifetime lt = comp[chan].get_required_lifetime();
 
       if (lt.begin >= 0) {
          if ((result.begin < 0) || (result.begin > lt.begin))
@@ -752,7 +768,7 @@ void temp_comp_access::propagate_lifetime_to_dominant_write_scope()
       last_read = lr;
 }
 
-lifetime temp_comp_access::get_required_lifetime()
+register_lifetime temp_comp_access::get_required_lifetime()
 {
    bool keep_for_full_loop = false;
 
@@ -859,52 +875,149 @@ lifetime temp_comp_access::get_required_lifetime()
    return make_lifetime(first_write, last_read);
 }
 
+array_access::array_access():
+   first_access(-1),
+   last_access(-1),
+   first_access_scope(nullptr),
+   last_access_scope(nullptr),
+   accumulated_swizzle(0),
+   conditional_access_in_loop(false)
+{
+}
+
+void array_access::record_access(int line, prog_scope *scope, int swizzle)
+{
+   if (!first_access_scope) {
+      first_access = line;
+      first_access_scope = scope;
+   }
+   last_access_scope = scope;
+   last_access = line;
+   accumulated_swizzle |= swizzle;
+   if (scope->in_ifelse_scope() && scope->innermost_loop())
+      conditional_access_in_loop = true;
+}
+
+void array_access::get_required_lifetime(array_lifetime& lt)
+{
+   RENAME_DEBUG(debug_log << "first_access_scope=" << first_access_scope << "\n");
+   RENAME_DEBUG(debug_log << "last_access_scope=" << last_access_scope << "\n");
+
+   if (first_access_scope == last_access_scope) {
+      lt.set_lifetime(first_access, last_access);
+      lt.set_access_mask(accumulated_swizzle);
+      return;
+   }
+
+   const prog_scope *shared_scope = first_access_scope;
+   const prog_scope *other_scope = last_access_scope;
+
+   assert(shared_scope);
+   RENAME_DEBUG(debug_log << "shared_scope=" << shared_scope << "\n");
+
+   if (conditional_access_in_loop) {
+      const prog_scope *help = shared_scope->outermost_loop();
+      if (help) {
+         shared_scope = help;
+      } else {
+         help = other_scope->outermost_loop();
+         if (help)
+            other_scope = help;
+      }
+      if (first_access > shared_scope->begin())
+         first_access = shared_scope->begin();
+      if (last_access < shared_scope->end())
+         last_access = shared_scope->end();
+   }
+
+   /* See if any of the two is the parent of the other. */
+   if (other_scope->contains_range_of(*shared_scope)) {
+      shared_scope = other_scope;
+   } else while (!shared_scope->contains_range_of(*other_scope)) {
+      assert(shared_scope->parent());
+      if (shared_scope->type() == loop_body) {
+         if (last_access < shared_scope->end())
+             last_access = shared_scope->end();
+      }
+      shared_scope = shared_scope->parent();
+   }
+
+   while (shared_scope != other_scope) {
+      if (other_scope->type() == loop_body) {
+         if (last_access < other_scope->end())
+             last_access = other_scope->end();
+      }
+      other_scope = other_scope->parent();
+   }
+
+   lt.set_lifetime(first_access, last_access);
+   lt.set_access_mask(accumulated_swizzle);
+}
+
 /* Helper class for sorting and searching the registers based
  * on life times. */
-class access_record {
+class temp_access_record {
 public:
    int begin;
    int end;
    int reg;
    bool erase;
 
-   bool operator < (const access_record& rhs) const {
+   bool operator < (const temp_access_record& rhs) const {
       return begin < rhs.begin;
    }
 };
 
 class access_recorder {
 public:
-   access_recorder(int _ntemps);
+   access_recorder(int _ntemps, int _narrays);
    ~access_recorder();
 
    void record_read(const st_src_reg& src, int line, prog_scope *scope);
    void record_write(const st_dst_reg& src, int line, prog_scope *scope);
 
-   void get_required_lifetimes(struct lifetime *lifetimes);
+   void get_required_lifetimes(struct register_lifetime *reg_lifetimes,
+                               struct array_lifetime *arr_lifetimes);
 private:
 
    int ntemps;
+   int narrays;
    temp_access *acc;
-
+   array_access *arr;
 };
 
-access_recorder::access_recorder(int _ntemps):
-   ntemps(_ntemps)
+access_recorder::access_recorder(int _ntemps, int _narrays):
+   ntemps(_ntemps),
+   narrays(_narrays)
 {
    acc = new temp_access[ntemps];
+   arr = new array_access[narrays];
 }
 
 access_recorder::~access_recorder()
 {
+   delete[] arr;
    delete[] acc;
 }
 
 void access_recorder::record_read(const st_src_reg& src, int line,
                                   prog_scope *scope)
 {
+   int readmask = 0;
+   for (int idx = 0; idx < 4; ++idx) {
+      int swz = GET_SWZ(src.swizzle, idx);
+      readmask |= (1 << swz) & 0xF;
+   }
+
    if (src.file == PROGRAM_TEMPORARY)
-      acc[src.index].record_read(line, scope, src.swizzle);
+      acc[src.index].record_read(line, scope, readmask);
+
+   if (src.file == PROGRAM_ARRAY) {
+      RENAME_DEBUG(cerr << "src.array_id=" << src.array_id << ", narray="
+                   << narrays  << " read scope: " << scope << "\n");
+      assert(src.array_id <= narrays);
+      arr[src.array_id - 1].record_access(line, scope, readmask);
+   }
 
    if (src.reladdr)
       record_read(*src.reladdr, line, scope);
@@ -918,29 +1031,46 @@ void access_recorder::record_write(const st_dst_reg& dst, int line,
    if (dst.file == PROGRAM_TEMPORARY)
       acc[dst.index].record_write(line, scope, dst.writemask);
 
+   if (dst.file == PROGRAM_ARRAY) {
+      RENAME_DEBUG(cerr << "dst.array_id=" << dst.array_id << ", narray="
+                   << narrays << " write scope: " << scope << "\n");
+      assert(dst.array_id <= narrays);
+      arr[dst.array_id - 1].record_access(line, scope, dst.writemask);
+   }
+
    if (dst.reladdr)
       record_read(*dst.reladdr, line, scope);
    if (dst.reladdr2)
       record_read(*dst.reladdr2, line, scope);
 }
 
-void access_recorder::get_required_lifetimes(struct lifetime *lifetimes)
+void access_recorder::get_required_lifetimes(struct register_lifetime *reg_lifetimes,
+                                             struct array_lifetime *arr_lifetimes)
 {
-   RENAME_DEBUG(debug_log << "========= lifetimes ==============\n");
+   RENAME_DEBUG(cerr << "========= register lifetimes ==============\n");
    for(int i = 0; i < ntemps; ++i) {
-      RENAME_DEBUG(debug_log<< setw(4) << i);
-      lifetimes[i] = acc[i].get_required_lifetime();
-      RENAME_DEBUG(debug_log << ": [" << lifetimes[i].begin << ", "
-                        << lifetimes[i].end << "]\n");
+      RENAME_DEBUG(cerr << setw(4) << i);
+      reg_lifetimes[i] = acc[i].get_required_lifetime();
+      RENAME_DEBUG(cerr << ": [" << reg_lifetimes[i].begin<< ", "
+                   << reg_lifetimes[i].end << "]\n");
    }
-   RENAME_DEBUG(debug_log << "==================================\n\n");
+   RENAME_DEBUG(cerr << "==================================\n\n");
+
+   RENAME_DEBUG(cerr << "========= array lifetimes ("<< narrays
+                << ")==============" << std::endl);
+   for(int i = 0; i < narrays; ++i) {
+      RENAME_DEBUG(cerr << setw(4) << i);
+      arr[i].get_required_lifetime(arr_lifetimes[i]);
+      RENAME_DEBUG(cerr << ": [" << arr_lifetimes[i].begin() << ", "
+                   << arr_lifetimes[i].end() << "]\n");
+   }
+   RENAME_DEBUG(cerr << "==================================\n\n");
 }
 
 }
-
 #ifndef NDEBUG
 /* Function used for debugging. */
-static void dump_instruction(ostream& os, int line, prog_scope *scope,
+static void dump_instruction(std::ostream& os, int line, prog_scope *scope,
                              const glsl_to_tgsi_instruction& inst);
 #endif
 
@@ -949,7 +1079,9 @@ static void dump_instruction(ostream& os, int line, prog_scope *scope,
  */
 bool
 get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
-                                      int ntemps, struct lifetime *lifetimes)
+                                      int ntemps, struct register_lifetime *reg_lifetimes,
+                                      int narrays,
+                                      array_lifetime *arr_lifetimes)
 {
    int line = 0;
    int loop_id = 1;
@@ -974,11 +1106,11 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
 
    prog_scope_storage scopes(mem_ctx, n_scopes);
 
-   access_recorder access(ntemps);
+   access_recorder access(ntemps, narrays);
 
    prog_scope *cur_scope = scopes.create(nullptr, outer_scope, 0, 0, line);
 
-   RENAME_DEBUG(debug_log << "========= Begin shader ============\n");
+   RENAME_DEBUG(cerr << "========= Begin shader ============\n");
 
    foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
       if (is_at_end) {
@@ -986,7 +1118,7 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
          break;
       }
 
-      RENAME_DEBUG(dump_instruction(debug_log, line, cur_scope, *inst));
+      RENAME_DEBUG(dump_instruction(cerr, line, cur_scope, *inst));
 
       switch (inst->op) {
       case TGSI_OPCODE_BGNLOOP: {
@@ -1062,9 +1194,9 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
       }
       case TGSI_OPCODE_DEFAULT: {
          prog_scope_type t = inst->op == TGSI_OPCODE_CASE ? switch_case_branch
-                                                       : switch_default_branch;
+                                                          : switch_default_branch;
          prog_scope *switch_scope = (cur_scope->type() == switch_body) ?
-            cur_scope : cur_scope->parent();
+                                       cur_scope : cur_scope->parent();
          assert(switch_scope->type() == switch_body);
          prog_scope *scope = scopes.create(switch_scope, t,
                                            switch_scope->id(),
@@ -1116,7 +1248,7 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
    if (cur_scope->end() < 0)
       cur_scope->set_end(line - 1);
 
-   access.get_required_lifetimes(lifetimes);
+   access.get_required_lifetimes(reg_lifetimes, arr_lifetimes);
    return true;
 }
 
@@ -1126,14 +1258,14 @@ get_temp_registers_required_lifetimes(void *mem_ctx, exec_list *instructions,
  * end points at the element past the end of the search range, and
  * the array comprising [start, end) must be sorted in ascending order.
  */
-static access_record*
-find_next_rename(access_record* start, access_record* end, int bound)
+template <typename T>
+static T* find_next_rename(T* start, T* end, int bound)
 {
    int delta = (end - start);
 
    while (delta > 0) {
       int half = delta >> 1;
-      access_record* middle = start + half;
+      T* middle = start + half;
 
       if (bound <= middle->begin) {
          delta = half;
@@ -1158,10 +1290,10 @@ static int access_record_compare (const void *a, const void *b) {
 /* This functions evaluates the register merges by using a binary
  * search to find suitable merge candidates. */
 void get_temp_registers_remapping(void *mem_ctx, int ntemps,
-                                  const struct lifetime* lifetimes,
+                                  const struct register_lifetime* lifetimes,
                                   struct rename_reg_pair *result)
 {
-   access_record *reg_access = ralloc_array(mem_ctx, access_record, ntemps);
+   temp_access_record *reg_access = ralloc_array(mem_ctx, temp_access_record, ntemps);
 
    int used_temps = 0;
    for (int i = 0; i < ntemps; ++i) {
@@ -1180,14 +1312,14 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
    std::qsort(reg_access, used_temps, sizeof(access_record), access_record_compare);
 #endif
 
-   access_record *trgt = reg_access;
-   access_record *reg_access_end = reg_access + used_temps;
-   access_record *first_erase = reg_access_end;
-   access_record *search_start = trgt + 1;
+   temp_access_record *trgt = reg_access;
+   temp_access_record *reg_access_end = reg_access + used_temps;
+   temp_access_record *first_erase = reg_access_end;
+   temp_access_record *search_start = trgt + 1;
 
    while (trgt != reg_access_end) {
-      access_record *src = find_next_rename(search_start, reg_access_end,
-                                            trgt->end);
+      temp_access_record *src = find_next_rename(search_start, reg_access_end,
+                                                 trgt->end);
       if (src != reg_access_end) {
          result[src->reg].new_reg = trgt->reg;
          result[src->reg].valid = true;
@@ -1205,8 +1337,8 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
          /* Moving to the next target register it is time to remove
           * the already merged registers from the search range */
          if (first_erase != reg_access_end) {
-            access_record *outp = first_erase;
-            access_record *inp = first_erase + 1;
+            temp_access_record *outp = first_erase;
+            temp_access_record *inp = first_erase + 1;
 
             while (inp != reg_access_end) {
                if (!inp->erase)
@@ -1226,8 +1358,36 @@ void get_temp_registers_remapping(void *mem_ctx, int ntemps,
 
 /* Code below used for debugging */
 #ifndef NDEBUG
+static const char swizzle_txt[] = "xyzw";
+
+static const char *tgsi_file_names[PROGRAM_FILE_MAX] =  {
+   "TEMP",  "ARRAY",   "IN", "OUT", "STATE", "CONST",
+   "UNIFORM",  "WO", "ADDR", "SAMPLER",  "SV", "UNDEF",
+   "IMM", "BUF",  "MEM",  "IMAGE"
+};
+
+template <typename st_reg>
+void dump_reg_access(std::ostream& os, const st_reg& reg)
+{
+   os << tgsi_file_names[reg.file];
+   if (reg.file == PROGRAM_ARRAY)
+      os << "(" << reg.array_id << ")";
+
+   if (reg.has_index2) {
+      os << "[";
+      if (reg.reladdr2)
+         os << *reg.reladdr2 << "+";
+      os << reg.index2D << "]";
+   }
+
+   os << "[";
+   if (reg.reladdr)
+      os << *reg.reladdr << "+";
+   os << reg.index << "]";
+}
+
 static
-void dump_instruction(ostream& os, int line, prog_scope *scope,
+void dump_instruction(std::ostream& os, int line, prog_scope *scope,
                       const glsl_to_tgsi_instruction& inst)
 {
    const struct tgsi_opcode_info *info = inst.info;

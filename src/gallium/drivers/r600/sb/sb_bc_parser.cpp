@@ -388,7 +388,7 @@ int bc_parser::prepare_alu_group(cf_node* cf, alu_group_node *g) {
 			n->flags |= NF_DONT_HOIST | NF_DONT_MOVE |
 				NF_DONT_KILL | NF_SCHEDULE_EARLY;
 		} else if (flags & AF_LDS) {
-			n->flags |= NF_DONT_MOVE | NF_DONT_HOIST | NF_SCHEDULE_EARLY;
+			n->flags |= NF_DONT_MOVE | NF_DONT_HOIST;
 			/* all non-read operations have side effects */
 			if (n->bc.op != LDS_OP2_LDS_READ2_RET &&
 			    n->bc.op != LDS_OP1_LDS_READ_REL_RET &&
@@ -440,7 +440,7 @@ int bc_parser::prepare_alu_group(cf_node* cf, alu_group_node *g) {
 			n->dst[0] = sh->get_special_value(SV_AR_INDEX);
 			save_mova(n);
 
-			n->flags |= NF_DONT_HOIST;
+			n->flags |= NF_DONT_HOIST | NF_DONT_KILL;
 
 		} else if ((n->bc.op_ptr->src_count == 3 || n->bc.write_mask) && !(flags & AF_LDS)) {
 			assert(!n->bc.dst_rel || n->bc.index_mode == INDEX_AR_X);
@@ -523,6 +523,7 @@ int bc_parser::prepare_alu_group(cf_node* cf, alu_group_node *g) {
 					n->src[s] = sh->get_special_value(SV_LDS_OQB);
 					break;
 				}
+				n->flags |= NF_DONT_MOVE;
 			} else {
 				switch (src.sel) {
 				case ALU_SRC_0:

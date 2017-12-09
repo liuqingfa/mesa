@@ -188,8 +188,8 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 		if (key.vs.as_ls)
 			use_sb = 0;
 	}
-	/*use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_CTRL);
-	use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_EVAL);*/
+	/* use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_CTRL); */
+	/* use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_EVAL); */
 	use_sb &= (shader->shader.processor_type != PIPE_SHADER_COMPUTE);
 
 	/* disable SB for shaders using doubles */
@@ -218,8 +218,8 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 			R600_ERR("r600_sb_bytecode_process failed !\n");
 			goto error;
 		}
-		assert(shader->shader.processor_type != PIPE_SHADER_TESS_CTRL);
-		assert(shader->shader.processor_type != PIPE_SHADER_TESS_EVAL);
+		/*assert(shader->shader.processor_type != PIPE_SHADER_TESS_CTRL); */
+		/*assert(shader->shader.processor_type != PIPE_SHADER_TESS_EVAL); */
 	}
 
 	if (shader->gs_copy_shader) {

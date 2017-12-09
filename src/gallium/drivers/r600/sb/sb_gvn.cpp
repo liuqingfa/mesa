@@ -133,6 +133,9 @@ bool gvn::visit(region_node& n, bool enter) {
 }
 
 bool gvn::process_src(value* &v, bool rewrite) {
+
+	if (v->is_lds_oq())
+		return false;
 	if (!v->gvn_source)
 		sh.vt.add_value(v);
 

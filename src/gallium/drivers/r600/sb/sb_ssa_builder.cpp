@@ -132,6 +132,7 @@ bool ssa_prepare::visit(depart_node& n, bool enter) {
 
 int ssa_rename::init() {
 	rename_stack.push(def_map());
+	rename_lds_use_stack.push(def_map());
 	return 0;
 }
 
@@ -287,9 +288,15 @@ void ssa_rename::pop() {
 value* ssa_rename::rename_use(node *n, value* v) {
 	if (v->version)
 		return v;
-
-	unsigned index = get_index(rename_stack.top(), v);
-	v = sh.get_value_version(v, index);
+	unsigned index;
+	if (v->is_lds_oq()) {
+		unsigned index = new_index(lds_use_count, v);
+		set_index(rename_lds_use_stack.top(), v, index);
+		v = sh.get_value_version(v, index);
+	} else {
+		index = get_index(rename_stack.top(), v);
+		v = sh.get_value_version(v, index);
+	}
 
 	// if (alu) instruction is predicated and source arg comes from psi node
 	// (that is, from another predicated instruction through its psi node),

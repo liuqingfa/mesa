@@ -212,7 +212,10 @@ void ra_checker::check_alu_group(alu_group_node *g) {
 		process_op_dst(a);
 
 		unsigned slot = a->bc.slot;
-		prev_dst[slot] = a->dst[0];
+		if (a->dst.size())
+			prev_dst[slot] = a->dst[0];
+		else
+			prev_dst[slot] = NULL;
 	}
 }
 

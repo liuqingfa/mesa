@@ -126,6 +126,7 @@ class alu_group_tracker {
 	bool has_predset;
 	bool has_kill;
 	bool updates_exec_mask;
+	bool uses_lds_oq;
 
 	unsigned chan_count[4];
 

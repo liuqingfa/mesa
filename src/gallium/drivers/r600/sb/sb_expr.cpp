@@ -74,6 +74,8 @@ bool expr_handler::equal(value *l, value *r) {
 
 	assert(l != r);
 
+	if (l->is_lds_access() || r->is_lds_access())
+		return false;
 	if (l->gvalue() == r->gvalue())
 		return true;
 
@@ -382,8 +384,14 @@ bool expr_handler::fold_alu_op1(alu_node& n) {
 	assert(!n.src.empty());
 	if (n.src.empty())
 		return false;
+	unsigned flags = n.bc.op_ptr->flags;
+	if (flags & AF_LDS)
+		return false;
 
 	value* v0 = n.src[0]->gvalue();
+
+	if (v0->is_lds_oq() || v0->is_lds_access())
+		return false;
 
 	assert(v0 && n.dst[0]);
 

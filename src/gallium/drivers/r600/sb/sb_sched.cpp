@@ -312,7 +312,7 @@ alu_group_tracker::alu_group_tracker(shader &sh)
 	  gpr(), lt(), slots(),
 	  max_slots(sh.get_ctx().is_cayman() ? 4 : 5),
 	  has_mova(), uses_ar(), has_predset(), has_kill(),
-	  updates_exec_mask(), chan_count(), interp_param(), next_id() {
+	  updates_exec_mask(), uses_lds_oq(), chan_count(), interp_param(), next_id() {
 
 	available_slots = sh.get_ctx().has_trans ? 0x1F : 0x0F;
 }
@@ -461,6 +461,8 @@ bool alu_group_tracker::try_reserve(alu_node* n) {
 	if (n->uses_ar() && has_mova)
 		return false;
 
+	if (n->uses_lds_oq() && uses_lds_oq)
+		return false;
 	for (unsigned i = 0; i < nsrc; ++i) {
 
 		unsigned last_id = next_id;
@@ -468,6 +470,7 @@ bool alu_group_tracker::try_reserve(alu_node* n) {
 		value *v = n->src[i];
 		if (!v->is_any_gpr() && !v->is_rel())
 			continue;
+
 		sel_chan vid = get_value_id(n->src[i]);
 
 		if (vid > last_id && chan_count[vid.chan()] == 3) {
@@ -684,6 +687,7 @@ void alu_group_tracker::reset(bool keep_packed) {
 	uses_ar = false;
 	has_predset = false;
 	has_kill = false;
+	uses_lds_oq = false;
 	updates_exec_mask = false;
 	available_slots = sh.get_ctx().has_trans ? 0x1F : 0x0F;
 	interp_param = 0;
@@ -703,6 +707,7 @@ void alu_group_tracker::update_flags(alu_node* n) {
 	has_mova |= (flags & AF_MOVA);
 	has_predset |= (flags & AF_ANY_PRED);
 	uses_ar |= n->uses_ar();
+	uses_lds_oq |= n->uses_lds_oq();
 
 	if (flags & AF_ANY_PRED) {
 		if (n->dst[2] != NULL)
@@ -1544,7 +1549,7 @@ void post_scheduler::recolor_locals() {
 
 	for (unsigned s = 0; s < ctx.num_slots; ++s) {
 		alu_node *n = rt.slot(s);
-		if (n) {
+		if (n && n->dst.size()) {
 			value *d = n->dst[0];
 			if (d && d->is_sgpr() && !d->is_prealloc()) {
 				recolor_local(d);
@@ -1658,7 +1663,7 @@ unsigned post_scheduler::try_add_instruction(node *n) {
 		value *d = a->dst.empty() ? NULL : a->dst[0];
 
 		if (d && d->is_special_reg()) {
-			assert((a->bc.op_ptr->flags & AF_MOVA) || d->is_geometry_emit());
+			assert((a->bc.op_ptr->flags & AF_MOVA) || d->is_geometry_emit() || d->is_lds_oq() || d->is_lds_access());
 			d = NULL;
 		}
 

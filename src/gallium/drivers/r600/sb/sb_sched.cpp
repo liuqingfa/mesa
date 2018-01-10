@@ -1556,7 +1556,7 @@ void post_scheduler::recolor_locals() {
 
 	for (unsigned s = 0; s < ctx.num_slots; ++s) {
 		alu_node *n = rt.slot(s);
-		if (n) {
+		if (n && n->dst.size()) {
 			value *d = n->dst[0];
 			if (d && d->is_sgpr() && !d->is_prealloc()) {
 				recolor_local(d);
@@ -1910,7 +1910,7 @@ void post_scheduler::release_op(node *n) {
 
 	if (n->is_copy_mov()) {
 		ready_copies.push_back(n);
-	} else if (n->is_mova() || n->is_pred_set()) {
+	} else if (n->is_mova() || n->is_pred_set() || n->consumes_lds_oq() || n->produces_lds_oq()) {
 		ready.push_front(n);
 	} else {
 		ready.push_back(n);

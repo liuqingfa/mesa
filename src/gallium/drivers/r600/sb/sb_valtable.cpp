@@ -185,7 +185,7 @@ value_hash value::hash() {
 		return ghash;
 	if (is_rel())
 		ghash = rel_hash();
-	else if (def)
+	else if (def && !is_dead())
 		ghash = def->hash();
 	else
 		ghash = ((uintptr_t)this) | 1;

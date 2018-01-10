@@ -278,9 +278,9 @@ private:
 	void sched_early(container_node *n);
 	void td_sched_bb(bb_node *bb);
 	bool td_is_ready(node *n);
-	void td_release_uses(vvec &v);
-	void td_release_val(value *v);
-	void td_schedule(bb_node *bb, node *n);
+	bool td_release_uses(vvec &v);
+	bool td_release_val(value *v);
+	bool td_schedule(bb_node *bb, node *n);
 
 	void sched_late(container_node *n);
 	void bu_sched_bb(bb_node *bb);

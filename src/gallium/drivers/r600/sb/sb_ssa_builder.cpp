@@ -53,6 +53,8 @@ void ssa_prepare::add_defs(node &n) {
 		if (!v)
 			continue;
 
+		if (v->is_lds_access() || v->is_lds_oq())
+			continue;
 		if (v->is_rel()) {
 			s.add_vec(v->mdef);
 		} else
@@ -167,7 +169,7 @@ bool ssa_rename::visit(alu_node& n, bool enter) {
 
 		node *psi = NULL;
 
-		if (n.pred && n.dst[0]) {
+		if (n.pred && n.dst[0] && !n.dst[0]->is_lds_access() && !n.dst[0]->is_lds_oq()) {
 
 			value *d = n.dst[0];
 			unsigned index = get_index(rename_stack.top(), d);

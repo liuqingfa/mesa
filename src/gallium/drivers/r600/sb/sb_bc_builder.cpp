@@ -398,7 +398,7 @@ int bc_builder::build_alu(alu_node* n) {
 			.LDS_OP((bc.op_ptr->opcode[1] >> 8) & 0xff)
 			.IDX_OFFSET_0((bc.lds_idx_offset >> 0) & 1)
 			.IDX_OFFSET_2((bc.lds_idx_offset >> 2) & 1)
-			.DST_CHAN(bc.dst_chan)
+			.DST_CHAN(0)
 			.IDX_OFFSET_3((bc.lds_idx_offset >> 3) & 1);
 
 		return 0;

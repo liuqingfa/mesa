@@ -158,18 +158,19 @@ void gcm::sched_early(container_node *n) {
 	}
 }
 
-void gcm::td_schedule(bb_node *bb, node *n) {
+bool gcm::td_schedule(bb_node *bb, node *n) {
+	bool pushed_front = false;
 	GCM_DUMP(
 		sblog << "scheduling : ";
 		dump::dump_op(n);
 		sblog << "\n";
 	);
-	td_release_uses(n->dst);
+	pushed_front = td_release_uses(n->dst);
 
 	bb->push_back(n);
 
 	op_map[n].top_bb = bb;
-
+	return pushed_front;
 }
 
 void gcm::td_sched_bb(bb_node* bb) {
@@ -181,8 +182,10 @@ void gcm::td_sched_bb(bb_node* bb) {
 		for (sq_iterator N, I = ready.begin(), E = ready.end(); I != E;
 				I = N) {
 			N = I; ++N;
-			td_schedule(bb, *I);
+			bool pushed_front = td_schedule(bb, *I);
 			ready.erase(I);
+			if (pushed_front)
+				break;
 		}
 	}
 }
@@ -191,7 +194,7 @@ bool gcm::td_is_ready(node* n) {
 	return uses[n] == 0;
 }
 
-void gcm::td_release_val(value *v) {
+bool gcm::td_release_val(value *v) {
 
 	GCM_DUMP(
 		sblog << "td checking uses: ";
@@ -199,6 +202,7 @@ void gcm::td_release_val(value *v) {
 		sblog << "\n";
 	);
 
+	bool pushed_front = false;
 	for (uselist::iterator I = v->uses.begin(), E = v->uses.end(); I != E; ++I) {
 		node *op = *I;
 		if (op->parent != &pending) {
@@ -220,23 +224,29 @@ void gcm::td_release_val(value *v) {
 			);
 
 			pending.remove_node(op);
-			ready.push_back(op);
+			if (op->produces_lds_oq() || op->consumes_lds_oq()) {
+				ready.push_front(op);
+				pushed_front = true;
+			} else
+				ready.push_back(op);
 		}
 	}
-
+	return pushed_front;
 }
 
-void gcm::td_release_uses(vvec& v) {
+bool gcm::td_release_uses(vvec& v) {
+	bool pushed_front = false;
 	for (vvec::iterator I = v.begin(), E = v.end(); I != E; ++I) {
 		value *v = *I;
 		if (!v)
 			continue;
 
 		if (v->is_rel())
-			td_release_uses(v->mdef);
+			pushed_front |= td_release_uses(v->mdef);
 		else
-			td_release_val(v);
+			pushed_front |= td_release_val(v);
 	}
+	return pushed_front;
 }
 
 void gcm::sched_late(container_node *n) {
@@ -637,7 +647,7 @@ void gcm::add_ready(node *n) {
 	sched_queue_id sq = sh.get_queue_id(n);
 	if (n->flags & NF_SCHEDULE_EARLY)
 		bu_ready_early[sq].push_back(n);
-	else if (sq == SQ_ALU && n->is_copy_mov())
+	else if (sq == SQ_ALU && (n->is_copy_mov() || n->consumes_lds_oq() || n->produces_lds_oq()))
 		bu_ready[sq].push_front(n);
 	else if (n->is_alu_inst()) {
 		alu_node *a = static_cast<alu_node*>(n);

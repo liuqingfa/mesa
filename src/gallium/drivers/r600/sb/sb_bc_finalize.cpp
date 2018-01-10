@@ -293,6 +293,10 @@ void bc_finalizer::finalize_alu_group(alu_group_node* g, node *prev_node) {
 		unsigned slot = n->bc.slot;
 		value *d = n->dst.empty() ? NULL : n->dst[0];
 
+		if (n->bc.op == LDS_OP1_LDS_READ_RET && !d) {
+			n->remove();
+			continue;
+		}
 		if (d && d->is_special_reg()) {
 			assert((n->bc.op_ptr->flags & AF_MOVA) || d->is_geometry_emit() || d->is_lds_oq() || d->is_lds_access());
 			d = NULL;
@@ -339,7 +343,8 @@ void bc_finalizer::finalize_alu_group(alu_group_node* g, node *prev_node) {
 			insert_rv6xx_load_ar_workaround(g);
 		}
 	}
-	last->bc.last = 1;
+	if (last)
+		last->bc.last = 1;
 }
 
 bool bc_finalizer::finalize_alu_src(alu_group_node* g, alu_node* a, alu_group_node *prev) {
@@ -358,6 +363,9 @@ bool bc_finalizer::finalize_alu_src(alu_group_node* g, alu_node* a, alu_group_no
 		assert(v);
 
 		bc_alu_src &src = a->bc.src[si];
+
+		if (si >= 3)
+			continue;
 		sel_chan sc;
 		src.rel = 0;
 

@@ -217,6 +217,10 @@ void liveness::update_interferences() {
 }
 
 bool liveness::remove_val(value *v) {
+  if (v->is_lds_access()) {
+    v->flags &= ~VLF_DEAD;
+    return true;
+  }
 	if (live.remove_val(v)) {
 		v->flags &= ~VLF_DEAD;
 		return true;

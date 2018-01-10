@@ -183,17 +183,13 @@ int r600_pipe_shader_create(struct pipe_context *ctx,
 		R600_ERR("translation from TGSI failed !\n");
 		goto error;
 	}
-	if (shader->shader.processor_type == PIPE_SHADER_VERTEX) {
-		/* only disable for vertex shaders in tess paths */
-		if (key.vs.as_ls)
-			use_sb = 0;
-	}
-	use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_CTRL);
-	use_sb &= (shader->shader.processor_type != PIPE_SHADER_TESS_EVAL);
 	use_sb &= (shader->shader.processor_type != PIPE_SHADER_COMPUTE);
 
 	/* disable SB for shaders using doubles */
 	use_sb &= !shader->shader.uses_doubles;
+
+	/* disable SB for barriers */
+	use_sb &= !shader->shader.uses_barrier;
 
 	use_sb &= !shader->shader.uses_atomics;
 	use_sb &= !shader->shader.uses_images;
@@ -3124,6 +3120,7 @@ static int r600_shader_from_tgsi(struct r600_context *rctx,
 	shader->uses_atomics = ctx.info.file_mask[TGSI_FILE_HW_ATOMIC];
 	shader->nsys_inputs = 0;
 
+	shader->uses_barrier = ctx.info.opcode_count[TGSI_OPCODE_BARRIER] + ctx.info.opcode_count[TGSI_OPCODE_MEMBAR];
 	shader->uses_images = ctx.info.file_count[TGSI_FILE_IMAGE] > 0 ||
 		ctx.info.file_count[TGSI_FILE_BUFFER] > 0;
 	indirect_gprs = ctx.info.indirect_files & ~((1 << TGSI_FILE_CONSTANT) | (1 << TGSI_FILE_SAMPLER));

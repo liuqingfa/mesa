@@ -1075,18 +1075,13 @@ static void dump_instruction(std::ostream& os, int line, prog_scope *scope,
 #endif
 
 /* Scan the program and estimate the required register life times.
- * The array live ranges must be pre-allocated
+ * The live range arrays must be pre-allocated
  */
 bool
 get_temp_registers_required_live_ranges(void *mem_ctx, exec_list *instructions,
-                                       int ntemps, struct register_live_range *reg_live_ranges)
+                                        int ntemps, struct register_live_range *reg_live_ranges,
+                                        int narrays, array_live_range *arr_live_ranges)
 {
-   /* Fake arrays, will become a parameter later, one array is needed for the
-    * reladdr tests.
-    */
-   int narrays = 2;
-   array_live_range arr_live_ranges[2];
-
    int line = 0;
    int loop_id = 1;
    int if_id = 1;

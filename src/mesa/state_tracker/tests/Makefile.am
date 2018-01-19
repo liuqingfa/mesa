@@ -16,8 +16,11 @@ AM_CPPFLAGS = \
 	$(DEFINES)
 
 if HAVE_STD_CXX11
-TESTS = st-renumerate-test
-check_PROGRAMS = st-renumerate-test
+TESTS = st-renumerate-test \
+	st-array-merge-test
+
+check_PROGRAMS = st-renumerate-test \
+	st-array-merge-test
 
 noinst_LIBRARIES = libmesa-st-tests-common.a
 endif
@@ -32,7 +35,13 @@ st_renumerate_test_SOURCES =			\
 st_renumerate_test_LDFLAGS = \
 	$(LLVM_LDFLAGS)
 
-st_renumerate_test_LDADD = \
+st_array_merge_test_SOURCES = \
+	test_glsl_to_tgsi_array_merge.cpp
+
+st_array_merge_test_LDFLAGS = \
+	$(LLVM_LDFLAGS)
+
+st_common_LDADD = \
 	libmesa-st-tests-common.a \
 	$(top_builddir)/src/mesa/libmesagallium.la \
 	$(top_builddir)/src/mapi/shared-glapi/libglapi.la \
@@ -41,3 +50,9 @@ st_renumerate_test_LDADD = \
 	$(top_builddir)/src/gtest/libgtest.la \
 	$(GALLIUM_COMMON_LIB_DEPS) \
 	$(LLVM_LIBS)
+
+st_renumerate_test_LDADD = \
+	$(st_common_LDADD)
+
+st_array_merge_test_LDADD = \
+	$(st_common_LDADD)

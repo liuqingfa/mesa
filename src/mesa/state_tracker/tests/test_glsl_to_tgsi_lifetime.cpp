@@ -1660,7 +1660,7 @@ TEST_F(LifetimeEvaluatorExactTest, WriteIndirectReladdr2)
  */
 TEST_F(RegisterRemappingTest, RegisterRemapping1)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_live_range> lt({{-1,-1},
                         {0,1},
                         {0,2},
                         {1,2},
@@ -1675,7 +1675,7 @@ TEST_F(RegisterRemappingTest, RegisterRemapping1)
 
 TEST_F(RegisterRemappingTest, RegisterRemapping2)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_live_range> lt({{-1,-1},
                         {0,1},
                         {0,2},
                         {3,4},
@@ -1687,7 +1687,7 @@ TEST_F(RegisterRemappingTest, RegisterRemapping2)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingMergeAllToOne)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_live_range> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},
@@ -1699,7 +1699,7 @@ TEST_F(RegisterRemappingTest, RegisterRemappingMergeAllToOne)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingIgnoreUnused)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_live_range> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},
@@ -1712,7 +1712,7 @@ TEST_F(RegisterRemappingTest, RegisterRemappingIgnoreUnused)
 
 TEST_F(RegisterRemappingTest, RegisterRemappingMergeZeroLifetimeRegisters)
 {
-   vector<lifetime> lt({{-1,-1},
+   vector<register_live_range> lt({{-1,-1},
                         {0,1},
                         {1,2},
                         {2,3},

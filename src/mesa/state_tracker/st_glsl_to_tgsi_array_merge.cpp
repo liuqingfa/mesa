@@ -37,6 +37,75 @@ using std::unique_ptr;
 using std::make_unique;
 #endif
 
+
+array_live_range::array_live_range():
+   id(0),
+   length(0),
+   first_access(0),
+   last_access(0),
+   component_access_mask(0),
+   used_component_count(0)
+{
+}
+
+array_live_range::array_live_range(unsigned aid, unsigned alength):
+   id(aid),
+   length(alength),
+   first_access(0),
+   last_access(0),
+   component_access_mask(0),
+   used_component_count(0)
+{
+}
+
+array_live_range::array_live_range(unsigned aid, unsigned alength, int begin,
+                               int end, int sw):
+   id(aid),
+   length(alength),
+   first_access(begin),
+   last_access(end),
+   component_access_mask(sw),
+   used_component_count(util_bitcount(sw))
+{
+}
+
+void array_live_range::set_lifetime(int _begin, int _end)
+{
+   set_begin(_begin);
+   set_end(_end);
+}
+
+void array_live_range::set_access_mask(int mask)
+{
+   component_access_mask = mask;
+   used_component_count = util_bitcount(mask);
+}
+
+void array_live_range::merge_lifetime(const array_live_range &other)
+{
+   if (other.begin() < first_access)
+      first_access = other.begin();
+   if (other.end() > last_access)
+      last_access = other.end();
+}
+
+void array_live_range::print(std::ostream& os) const
+{
+   os << "[id:" << id
+      << ", length:" << length
+      << ", (b:" << first_access
+      << ", e:" << last_access
+      << "), sw:" << component_access_mask
+      << ", nc:" << used_component_count
+      << "]";
+}
+
+bool array_live_range::time_doesnt_overlap(const array_live_range& other) const
+{
+   return (other.last_access < first_access ||
+           last_access < other.first_access);
+}
+
 namespace tgsi_array_merge {
 
 array_remapping::array_remapping():
@@ -278,5 +347,301 @@ bool operator == (const array_remapping& lhs, const array_remapping& rhs)
    return true;
 }
 
-/* end namespace tgsi_array_merge */
+bool sort_by_begin(const array_live_range& lhs, const array_live_range& rhs) {
+   return lhs.begin() < rhs.begin();
+}
+
+/* Try merging arrays that have equal access masks. It is assumed that the
+ * number of arrays is low so the search is implemented as brute force
+ * i.e. O(narrays^2).
+ * @param[in] narrays number of arrays
+ * @param[in,out] alt array life times, the merge target life time will be
+ *   updated with the new life time.
+ * @param[in,out] remapping track the array index remapping and reswizzeling.
+ * @returns number of merged arrays
+ */
+static int merge_with_equal_access_mask(int narrays, array_live_range *alt,
+                                        array_remapping *remapping)
+{
+   int remaps = 0;
+
+   /* Sort by "begin of life time" so that we don't have to restart searching
+    * after every merge.
+    * TODO: Does the inner loop really have to run over the full range?
+    */
+   std::sort(alt, alt + narrays, sort_by_begin);
+
+   for (int i = 0; i < narrays; ++i) {
+      array_live_range& ai = alt[i];
+
+      if (remapping[ai.array_id()].is_valid())
+         continue;
+
+      for (int j = i + 1; j < narrays; ++j) {
+         array_live_range& aj = alt[j];
+
+         if (remapping[aj.array_id()].is_valid())
+            continue;
+
+         if ((ai.access_mask() !=  aj.access_mask()) ||
+             !ai.time_doesnt_overlap(aj))
+            continue;
+
+         /* Both arrays have the same swizzle and the life ranges don't
+          * overlap, hence they can be merged.
+          * Merge the shorter array into the longer.
+          */
+         array_live_range& trgt = ai;
+         array_live_range& src = aj;
+
+         if (trgt.array_length() < src.array_length())
+            std::swap(src, trgt);
+
+         remapping[src.array_id()] = array_remapping(trgt.array_id(),
+                                                     trgt.access_mask());
+         trgt.merge_lifetime(src);
+
+         ++remaps;
+      }
+   }
+   return remaps;
+}
+
+/* Try merging arrays with overlapping lifetimes that use at most four
+ * components together.
+ * @param[in] narrays number of arrays
+ * @param[in,out] alt array life times, the merge target life time will be
+ *   updated with the new life time.
+ * @param[in,out] remapping track the arraay index remapping and reswizzeling.
+ * @returns number of merged arrays
+ */
+static int interleave_arrays(int narrays, array_live_range *alt,
+                             array_remapping *remapping)
+{
+   for (int i = 0; i < narrays; ++i) {
+      array_live_range& ai = alt[i];
+      if (remapping[ai.array_id()].is_valid())
+         continue;
+
+      for (int j = i + 1; j < narrays; ++j) {
+         array_live_range& aj = alt[j];
+
+         if (remapping[aj.array_id()].is_valid())
+            continue;
+
+         if ((ai.used_components() + aj.used_components() > 4) ||
+             ai.time_doesnt_overlap(aj))
+            continue;
+
+         /* ai is a longer array then aj, and together they don't occupy at
+          * most all four components
+          */
+         array_live_range& trgt = ai;
+         array_live_range& src = aj;
+
+         if (trgt.array_length() < src.array_length())
+            std::swap(src, trgt);
+
+         remapping[src.array_id()] = array_remapping(trgt.array_id(),
+                                                     trgt.access_mask(),
+                                                     src.access_mask());
+         trgt.merge_lifetime(src);
+         trgt.set_access_mask(remapping[src.array_id()].combined_access_mask());
+
+         return 1;
+      }
+   }
+   return 0;
+}
+
+/* Try merging arrays with non-overlapping life times. Does the same as
+ * merge_with_equal_access_mask without checking the access masks.
+ */
+static int merge_arrays(int narrays, array_live_range *alt,
+                        array_remapping *remapping)
+{
+   int remaps = 0;
+   std::sort(alt, alt + narrays, sort_by_begin);
+
+   for (int i = 0; i < narrays; ++i) {
+      array_live_range& ai = alt[i];
+
+      if (remapping[ai.array_id()].is_valid())
+         continue;
+
+      for (int j = i + 1; j < narrays; ++j) {
+         array_live_range& aj = alt[j];
+
+         if (remapping[aj.array_id()].is_valid())
+            continue;
+
+         if (!ai.time_doesnt_overlap(aj))
+            continue;
+
+         /* Life ranges don't overlap, so merge the larger array
+          * into the shorter one.
+          */
+         array_live_range& trgt = ai;
+         array_live_range& src = aj;
+
+         if (trgt.array_length() < src.array_length())
+            std::swap(trgt, src);
+
+         remapping[src.array_id()] = array_remapping(trgt.array_id(),
+                                                     trgt.access_mask());
+         trgt.merge_lifetime(src);
+
+         ++remaps;
+      }
+   }
+   return remaps;
+}
+
+/* Estimate the array merging: First in a loop, arrays with equal access mask
+ * are merged then interleave arrays that together use at most four components,
+ * and finally arrays are merged regardless of access mask.
+ * @param[in] narrays number of arrays
+ * @param[in,out] alt array life times, the merge target life time will be
+ *   updated with the new life time.
+ * @param[in,out] remapping track the arraay index remapping and reswizzeling.
+ * @returns number of merged arrays
+ */
+bool get_array_remapping(int narrays, array_live_range *arr_lifetimes,
+                         array_remapping *remapping)
+{
+   int total_remapped_arrays = 0;
+   int remapped_arrays;
+
+   do {
+      remapped_arrays = merge_with_equal_access_mask(narrays, arr_lifetimes,
+                                                     remapping);
+      remapped_arrays += interleave_arrays(narrays, arr_lifetimes, remapping);
+      total_remapped_arrays += remapped_arrays;
+   } while (remapped_arrays > 0);
+
+   total_remapped_arrays += merge_arrays(narrays, arr_lifetimes, remapping);
+
+   for (int i = 1; i <= narrays; ++i) {
+      if (remapping[i].is_valid()) {
+         remapping[i].finalize_mappings(remapping);
+      }
+   }
+
+   return total_remapped_arrays > 0;
+}
+
+/* Remap the arrays in a TGSI program according to the given mapping.
+ * @param narrays number of arrays
+ * @param array_sizes array of arrays sizes
+ * @param instructions TGSI program
+ * @param map the array remapping information
+ * @returns number of arrays after remapping
+ */
+int remap_arrays(int narrays, unsigned *array_sizes,
+                 exec_list *instructions,
+                 array_remapping *map)
+{
+   /* re-calculate arrays */
+#if __cplusplus < 201402L
+   int *idx_map = new int[narrays + 1];
+   unsigned *old_sizes = new unsigned[narrays + 1];
+#else
+   unique_ptr<int[]> idx_map = make_unique<int[]>(narrays + 1);
+   unique_ptr<unsigned[]> old_sizes = make_unique<unsigned[]>(narrays + 1);
+#endif
+
+   memcpy(&old_sizes[0], &array_sizes[0], sizeof(unsigned) * narrays);
+
+   /* Evaluate mapping for the array indices and opdate array sizes */
+   int new_narrays = 0;
+   for (int i = 1; i <= narrays; ++i) {
+      if (!map[i].is_valid()) {
+         ++new_narrays;
+         idx_map[i] = new_narrays;
+         array_sizes[new_narrays] = old_sizes[i];
+      }
+   }
+
+   /* Map the array ids of merge arrays. */
+   for (int i = 1; i <= narrays; ++i) {
+      if (map[i].is_valid()) {
+         map[i].set_target_id(idx_map[map[i].target_array_id()]);
+      }
+   }
+
+   /* Map the array ids of merge targets that just got renumbered. */
+   for (int i = 1; i <= narrays; ++i) {
+      if (!map[i].is_valid()) {
+         map[i].set_target_id(idx_map[i]);
+      }
+   }
+
+   /* Update the array ids in the registers */
+   foreach_in_list(glsl_to_tgsi_instruction, inst, instructions) {
+      for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
+         st_src_reg& src = inst->src[j];
+         if (src.file == PROGRAM_ARRAY && src.array_id > 0) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.target_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < inst->tex_offset_num_offset; j++) {
+         st_src_reg& src = inst->tex_offsets[j];
+         if (src.file == PROGRAM_ARRAY && src.array_id > 0) {
+            array_remapping& m = map[src.array_id];
+            if (m.is_valid()) {
+               src.array_id = m.target_array_id();
+               src.swizzle = m.map_swizzles(src.swizzle);
+            }
+         }
+      }
+      for (unsigned j = 0; j < num_inst_dst_regs(inst); j++) {
+         st_dst_reg& dst = inst->dst[j];
+         if (dst.file == PROGRAM_ARRAY && dst.array_id > 0) {
+            array_remapping& m = map[dst.array_id];
+            if (m.is_valid()) {
+               assert(j == 0 &&
+                      "remapping can only be done for single dest ops");
+               dst.array_id = m.target_array_id();
+               dst.writemask = m.map_writemask(dst.writemask);
+
+               /* If the target component is moved, then the source swizzles
+                * must be moved accordingly.
+                */
+               for (unsigned j = 0; j < num_inst_src_regs(inst); j++) {
+                  st_src_reg& src = inst->src[j];
+                  src.swizzle = m.move_read_swizzles(src.swizzle);
+               }
+            }
+         }
+      }
+   }
+
+#if __cplusplus < 201402L
+   delete[] old_sizes;
+   delete[] idx_map;
+#endif
+
+   return new_narrays;
+}
+
+}
+
+using namespace tgsi_array_merge;
+
+int  merge_arrays(int narrays,
+                  unsigned *array_sizes,
+                  exec_list *instructions,
+                  struct array_live_range *arr_lifetimes)
+{
+   array_remapping *map= new array_remapping[narrays + 1];
+
+   if (get_array_remapping(narrays, arr_lifetimes, map))
+      narrays = remap_arrays(narrays, array_sizes, instructions, map);
+
+   delete[] map;
+   return narrays;
 }

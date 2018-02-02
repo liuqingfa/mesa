@@ -1102,12 +1102,13 @@ static void dump_instruction(ostream& os, int line, prog_scope *scope,
                              const glsl_to_tgsi_instruction& inst);
 #endif
 
-/* Scan the program and estimate the required register live ranges.
- * live_ranges must be pre-allocated.
+/* Scan the program and estimate the required register and array live ranges.
+ * The *live_ranges must be pre-allocated.
  */
 bool
-get_temp_registers_required_live_ranges(void *mem_ctx, exec_list *instructions,
-                  int ntemps, struct register_live_range *register_live_ranges)
+get_required_live_ranges(void *mem_ctx, exec_list *instructions, int ntemps,
+                         struct register_live_range *register_live_ranges,
+                         int narrays, struct array_live_range *array_live_ranges)
 {
    int line = 0;
    int loop_id = 1;
@@ -1115,10 +1116,6 @@ get_temp_registers_required_live_ranges(void *mem_ctx, exec_list *instructions,
    int switch_id = 0;
    bool is_at_end = false;
    int n_scopes = 1;
-
-   /* Placeholder to make the reladdr tests pass, will be removed with the next patch. */
-   int narrays = 2;
-   struct array_live_range array_live_ranges[3];
 
    /* Count scopes to allocate the needed space without the need for
     * re-allocation
